@@ -1,0 +1,4 @@
+# Cloudflare local secrets — copy from this file to `.dev.vars` (gitignored), which
+# `wrangler dev` and `wrangler dev --local` read for secrets just like production
+# reads them from `wrangler secret put`.
+OPERATOR_PASSWORD="replace-me-with-something-only-the-operator-knows"

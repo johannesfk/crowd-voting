@@ -43,6 +43,29 @@ npm run dev
 npm run dev -- --open
 ```
 
+### Local setup
+
+Two files, both gitignored, both with a committed example next to them:
+
+```sh
+cp .dev.vars.example .dev.vars    # the operator password, read from the Worker environment
+cp .env.example .env.d1           # D1 credentials, read by drizzle-kit only
+```
+
+`.dev.vars` is the local stand-in for `wrangler secret put`: `npm run dev` and
+`npm run preview` both read it, and the operator area stays locked without it.
+
+### Database migrations
+
+Schema changes go through drizzle-kit, then apply to the local D1 database that
+`wrangler dev` keeps under `.wrangler/state`:
+
+```sh
+pnpm db:generate                                    # writes migrations/NNNN_*.sql
+npx wrangler d1 migrations apply crowd-voting --local
+npx wrangler d1 migrations apply crowd-voting       # the remote database
+```
+
 ## Building
 
 To create a production version of your app:

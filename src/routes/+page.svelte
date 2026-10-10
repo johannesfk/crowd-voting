@@ -1,5 +1,6 @@
 <script lang="ts">
 	import * as Card from '#lib/components/ui/card/index.js';
+	import { Button } from '#lib/components/ui/button/index.js';
 
 	// The phase machine is the backbone of the domain: Registration → Voting →
 	// Results → Published, in that order and never backwards. The ballot, the
@@ -50,7 +51,12 @@
 			</ol>
 		</Card.Content>
 		<Card.Footer>
-			<p class="text-sm text-muted-foreground">No contests exist yet.</p>
+			<p class="text-sm text-muted-foreground">
+				Running a Contest?
+				<Button href="/admin" variant="link" class="h-auto p-0 align-baseline">
+					Sign in to the operator area
+				</Button>.
+			</p>
 		</Card.Footer>
 	</Card.Root>
 </main>
