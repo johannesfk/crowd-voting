@@ -8,6 +8,19 @@
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare"
 	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "crowd-voting",
+			"database_id": "local"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "PHOTOS",
+			"bucket_name": "crowd-voting-photos"
+		}
+	],
 	"workers_dev": true,
 	"preview_urls": true
 }

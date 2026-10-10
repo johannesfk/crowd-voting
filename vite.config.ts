@@ -4,6 +4,11 @@ import { playwright } from '@vitest/browser-playwright';
 import adapter from '@sveltejs/adapter-cloudflare';
 import { sveltekit } from '@sveltejs/kit/vite';
 
+// Both test projects load this config, so each starts its own platform proxy.
+// Two proxies sharing .wrangler/state deadlock on the local D1 file lock, so
+// tests run against in-memory bindings instead.
+const runningUnderVitest = Boolean(process.env.VITEST);
+
 export default defineConfig({
 	plugins: [
 		tailwindcss(),
@@ -14,7 +19,7 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true,
 				experimental: { async: true }
 			},
-			adapter: adapter(),
+			adapter: adapter(runningUnderVitest ? { platformProxy: { persist: false } } : {}),
 			experimental: { remoteFunctions: true }
 		})
 	],
