@@ -3,13 +3,10 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
+	import { fieldClass } from '#lib/components/field.js';
 	import type { ActionData } from './$types';
 
 	let { form }: { form: ActionData } = $props();
-
-	// Shared by the three free-text fields so the styling lives in one place.
-	const textareaClass =
-		'border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 flex min-h-16 w-full rounded-md border bg-transparent px-2.5 py-1 text-base shadow-xs transition-[color,box-shadow] focus-visible:ring-3 focus-visible:outline-none md:text-sm';
 </script>
 
 <svelte:head>
@@ -46,13 +43,13 @@
 					rows="3"
 					required
 					aria-invalid={form?.invalidContest ? true : undefined}
-					class={textareaClass}>{form?.description ?? ''}</textarea
+					class={fieldClass}>{form?.description ?? ''}</textarea
 				>
 			</div>
 
 			<div class="flex flex-col gap-2">
 				<Label for="registrationNotice">Note for people signing up</Label>
-				<textarea id="registrationNotice" name="registrationNotice" rows="2" class={textareaClass}
+				<textarea id="registrationNotice" name="registrationNotice" rows="2" class={fieldClass}
 					>{form?.registrationNotice ?? ''}</textarea
 				>
 				<p class="text-sm text-muted-foreground">
@@ -63,7 +60,7 @@
 
 			<div class="flex flex-col gap-2">
 				<Label for="votingNotice">Note for people voting</Label>
-				<textarea id="votingNotice" name="votingNotice" rows="2" class={textareaClass}
+				<textarea id="votingNotice" name="votingNotice" rows="2" class={fieldClass}
 					>{form?.votingNotice ?? ''}</textarea
 				>
 				<p class="text-sm text-muted-foreground">

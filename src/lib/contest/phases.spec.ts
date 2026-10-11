@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { INITIAL_PHASE, PHASES, nextPhase } from './phases';
+import { INITIAL_PHASE, PHASES, acceptsEntries, nextPhase } from './phases';
 
 describe('the phase machine', () => {
 	it('creates a Contest in Registration', () => {
@@ -28,5 +28,9 @@ describe('the phase machine', () => {
 
 	it('leaves a Contest in Published with nowhere to go', () => {
 		expect(nextPhase('published')).toBe(null);
+	});
+
+	it('takes Entries, and lets the operator hide one, only during Registration', () => {
+		expect(PHASES.filter(acceptsEntries)).toEqual(['registration']);
 	});
 });

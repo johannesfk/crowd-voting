@@ -12,6 +12,17 @@ export type ContestPhase = (typeof PHASES)[number];
 export const INITIAL_PHASE: ContestPhase = 'registration';
 
 /**
+ * Whether a Contest in this phase still takes Entries — and whether the operator
+ * may still hide one. Both answers are the same edge of the phase machine, and
+ * both are asked from places that must not spell the phase themselves: the
+ * registration action, the entry module's two guards, and the entry list's
+ * disabled button.
+ */
+export function acceptsEntries(phase: ContestPhase): boolean {
+	return phase === INITIAL_PHASE;
+}
+
+/**
  * The phase a Contest moves to from `current`, or `null` when it can move no
  * further. Every transition goes through here, so an edge that does not exist —
  * a backwards move, a jump over Voting, a second Publication — is refused

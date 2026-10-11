@@ -43,6 +43,14 @@
 						{#if contest.description}
 							<p class="text-sm text-muted-foreground">{contest.description}</p>
 						{/if}
+						<Button
+							href="/admin/contests/{contest.id}"
+							size="sm"
+							variant="outline"
+							class="self-start"
+						>
+							Entries
+						</Button>
 					</Card.Content>
 				</Card.Root>
 			</li>
