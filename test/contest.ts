@@ -148,6 +148,40 @@ export async function openVoting(page: Page, contestId: string) {
 	await expect(page.locator('[data-voting-open]')).toBeVisible();
 }
 
+/** One guest, on their own device, casting a ballot for the named costumes. */
+export async function vote(
+	context: BrowserContext,
+	contestId: string,
+	costumes: readonly string[]
+): Promise<Page> {
+	const page = await context.newPage();
+	await page.goto(`/c/${contestId}`);
+	await expect(page.getByRole('heading', { name: 'Pick your favourites' })).toBeVisible();
+
+	for (const costume of costumes) await page.getByLabel(`Vote for ${costume}`).check();
+	await page.getByRole('button', { name: 'Send my ballot' }).click();
+	await expect(page.getByRole('heading', { name: 'Your vote is in' })).toBeVisible();
+
+	return page;
+}
+
+/** Casts one Ballot per device, each from a browser of its own. */
+export async function fillBallots(
+	browser: Browser,
+	contestId: string,
+	ballots: readonly (readonly string[])[]
+) {
+	const pages: Page[] = [];
+
+	for (const picks of ballots) {
+		const guest = await browser.newContext();
+		pages.push(await vote(guest, contestId, picks));
+		await guest.close();
+	}
+
+	return pages;
+}
+
 /** The order the costume names appear on the ballot this device was served. */
 export async function ballotOrder(page: Page): Promise<string[]> {
 	return page

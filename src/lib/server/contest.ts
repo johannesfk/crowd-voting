@@ -3,7 +3,7 @@
 // phases in `#lib/contest/phases.js` — live in the domain modules.
 
 import { desc, eq } from 'drizzle-orm';
-import { acceptsEntries, nextPhase, type ContestPhase } from '#lib/contest/phases.js';
+import { acceptsEntries, acceptsVotes, nextPhase, type ContestPhase } from '#lib/contest/phases.js';
 import { getDb } from './db/index.js';
 import { contest } from './db/schema.js';
 
@@ -44,6 +44,9 @@ export class NoNextPhase extends Error {}
 /** Registration is not open, so there is no voting to open. */
 export class VotingAlreadyOpen extends Error {}
 
+/** Voting is not open, so there is nothing to close. */
+export class VotingNotOpen extends Error {}
+
 /**
  * Closes Registration and opens Voting in one deliberate act, and returns the
  * Contest where it now stands.
@@ -65,6 +68,30 @@ export async function openVoting(current: Contest): Promise<Contest> {
 	const [updated] = await getDb()
 		.update(contest)
 		.set({ phase: next })
+		.where(eq(contest.id, current.id))
+		.returning();
+
+	return updated;
+}
+
+/**
+ * Closes voting and freezes the result, in one deliberate act.
+ *
+ * Results means "final but private": the standings stop moving and nobody but the
+ * operator can see them, which is a separate decision from publishing. Nothing here
+ * publishes anything, and there is no way back — the machine does not run backwards,
+ * so closing is not undoable and the operator is told so before doing it.
+ *
+ * Named and guarded for the same reason `openVoting` is: the edge that ends voting is
+ * the one the result depends on, and it must be taken on purpose rather than as a
+ * side effect of something else moving a phase along.
+ */
+export async function closeVoting(current: Contest): Promise<Contest> {
+	if (!acceptsVotes(current.phase)) throw new VotingNotOpen();
+
+	const [updated] = await getDb()
+		.update(contest)
+		.set({ phase: nextPhase(current.phase) as ContestPhase })
 		.where(eq(contest.id, current.id))
 		.returning();
 

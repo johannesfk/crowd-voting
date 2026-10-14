@@ -8,10 +8,11 @@
 // in this module amends, replaces or withdraws anything.
 
 import { and, eq } from 'drizzle-orm';
-import { MIN_VOTES, parsePicks, pickCountAllowed } from '#lib/contest/ballot.js';
+import { MIN_VOTES, parsePicks, pickCountAllowed, tallyVotes } from '#lib/contest/ballot.js';
 import { acceptsVotes } from '#lib/contest/phases.js';
+import type { DuplicateDevice } from '#lib/contest/standings.js';
 import { getDb } from './db/index.js';
-import { ballot, vote } from './db/schema.js';
+import { ballot, device, vote } from './db/schema.js';
 import { listVisibleEntries } from './entry.js';
 import type { Contest } from './contest.js';
 
@@ -56,6 +57,74 @@ export async function findBallotByDevice(
 		.from(ballot)
 		.where(and(eq(ballot.contestId, contestId), eq(ballot.deviceId, deviceId)))
 		.get();
+}
+
+/**
+ * How many Ballots a Contest has taken, and how many Ballots each Entry is in.
+ *
+ * The count is the whole of the ranking: every pick weighs the same, so an Entry's
+ * rank is the number of Ballots containing it and there is nothing here about one
+ * pick being better than another.
+ */
+export async function countVotes(
+	contestId: string
+): Promise<{ ballots: number; votes: Map<string, number> }> {
+	const cast = await getDb()
+		.select({ id: ballot.id })
+		.from(ballot)
+		.where(eq(ballot.contestId, contestId));
+
+	if (cast.length === 0) return { ballots: 0, votes: new Map() };
+
+	const counted = await getDb()
+		.select({ entryId: vote.entryId })
+		.from(vote)
+		.innerJoin(ballot, eq(ballot.id, vote.ballotId))
+		.where(eq(ballot.contestId, contestId));
+
+	return { ballots: cast.length, votes: tallyVotes(counted) };
+}
+
+/**
+ * Every device that has cast a Ballot in this Contest, with the advisory signals it
+ * arrived with and what it picked.
+ *
+ * Read only to show the operator where a result looks odd. Nothing here is consulted
+ * when deciding whether to accept a vote, and no code path turns a duplicate into a
+ * refusal — venue guests share one access point, so a hard limit on it would reject
+ * most of the room (ADR 0004).
+ */
+export async function listVotingDevices(contestId: string): Promise<DuplicateDevice[]> {
+	const rows = await getDb()
+		.select({
+			deviceId: device.id,
+			networkHash: device.networkHash,
+			fingerprintHash: device.fingerprintHash,
+			ballotId: ballot.id
+		})
+		.from(ballot)
+		.innerJoin(device, eq(device.id, ballot.deviceId))
+		.where(eq(ballot.contestId, contestId));
+
+	if (rows.length === 0) return [];
+
+	const picked = await getDb()
+		.select({ ballotId: vote.ballotId, entryId: vote.entryId })
+		.from(vote)
+		.innerJoin(ballot, eq(ballot.id, vote.ballotId))
+		.where(eq(ballot.contestId, contestId));
+
+	const picksByBallot = new Map<string, string[]>();
+	for (const row of picked) {
+		picksByBallot.set(row.ballotId, [...(picksByBallot.get(row.ballotId) ?? []), row.entryId]);
+	}
+
+	return rows.map((row) => ({
+		id: row.deviceId,
+		networkHash: row.networkHash,
+		fingerprintHash: row.fingerprintHash,
+		picks: picksByBallot.get(row.ballotId) ?? []
+	}));
 }
 
 /**

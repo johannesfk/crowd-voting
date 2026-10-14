@@ -33,6 +33,18 @@ export function acceptsVotes(phase: ContestPhase): boolean {
 }
 
 /**
+ * Whether a Contest has been scored at all — voting open and counting, or results
+ * frozen and final. Before Registration has been closed there is nothing to count.
+ *
+ * The Board stays worth showing after voting closes, because the operator is the one
+ * who publishes and presents the result; what stops is the live connection, not the
+ * numbers.
+ */
+export function hasBeenScored(phase: ContestPhase): boolean {
+	return acceptsVotes(phase) || phase === 'results';
+}
+
+/**
  * Whether an Entry's photograph may be shown to the audience. Photographs of
  * guests are a surprise until the ballot opens (story 86), so they are served
  * from Voting onwards and never during Registration — which is the same edge the
