@@ -1,0 +1,1 @@
+ALTER TABLE `contest` ADD `published_at` integer;

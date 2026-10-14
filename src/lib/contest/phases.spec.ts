@@ -5,7 +5,9 @@ import {
 	acceptsEntries,
 	acceptsVotes,
 	nextPhase,
-	showsPhotos
+	isWaiting,
+	showsPhotos,
+	showsStandings
 } from './phases';
 
 describe('the phase machine', () => {
@@ -47,5 +49,17 @@ describe('the phase machine', () => {
 
 	it('shows photographs to the audience from Voting onwards, never during Registration', () => {
 		expect(PHASES.filter(showsPhotos)).toEqual(['voting', 'results', 'published']);
+	});
+
+	it('shows the standings publicly only once the operator has published them', () => {
+		// Results is final but private, so an audience member waits there rather than
+		// being shown a result nobody has chosen to reveal.
+		expect(PHASES.filter(showsStandings)).toEqual(['published']);
+	});
+
+	it('makes a guest wait only once voting has closed, never during it', () => {
+		// The ballot page must not subscribe to the waiting query, or every guest in the
+		// room holds a never-ending connection while the room is busiest.
+		expect(PHASES.filter(isWaiting)).toEqual(['results']);
 	});
 });

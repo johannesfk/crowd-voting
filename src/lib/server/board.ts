@@ -51,3 +51,28 @@ export async function readBoard(contestId: string): Promise<Board> {
 		duplicates: findDuplicateSignals(await listVotingDevices(contestId))
 	};
 }
+
+/**
+ * The standings as the audience sees them.
+ *
+ * A separate read rather than a filtered view of `readBoard`, on purpose: the Board
+ * carries the advisory Duplicate signal and the ballot count, and both are the
+ * operator's alone. Choosing fields from one shape is how a duplicate warning ends
+ * up in front of the room a few releases later, so the public shape is built here
+ * from the same ranking rule and nothing else.
+ *
+ * The caller must check `showsStandings` first. This function does not, because a
+ * Contest's phase is not its to trust — it is the caller's whole reason for calling.
+ */
+export async function readPublicStandings(contestId: string): Promise<BoardStanding[]> {
+	const entries = await listVisibleEntries(contestId);
+	const { votes } = await countVotes(contestId);
+
+	return rankEntries(entries, votes, (entry) => entry.id).map(({ entry, votes, place }) => ({
+		entryId: entry.id,
+		costume: entry.costume,
+		names: entry.names,
+		votes,
+		place
+	}));
+}

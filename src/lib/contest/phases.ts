@@ -45,6 +45,20 @@ export function hasBeenScored(phase: ContestPhase): boolean {
 }
 
 /**
+ * Whether an audience member is waiting to be told the result.
+ *
+ * Results only, and that is a narrower question than "has been scored" on purpose.
+ * During voting the same link is serving a ballot, and subscribing the waiting query
+ * there would put a never-ending connection on every guest's screen at the exact
+ * moment the room is busiest — the fan-out ADR 0001 says not to build, arrived at by
+ * accident. A Contest in Results is the one phase where a guest has nothing else to
+ * do but find out.
+ */
+export function isWaiting(phase: ContestPhase): boolean {
+	return phase === 'results';
+}
+
+/**
  * Whether an Entry's photograph may be shown to the audience. Photographs of
  * guests are a surprise until the ballot opens (story 86), so they are served
  * from Voting onwards and never during Registration — which is the same edge the
@@ -52,6 +66,19 @@ export function hasBeenScored(phase: ContestPhase): boolean {
  */
 export function showsPhotos(phase: ContestPhase): boolean {
 	return !acceptsEntries(phase);
+}
+
+/**
+ * Whether the standings are public. Publication is the one thing in this machine
+ * that exposes the result to the audience, and it is deliberate and separate from
+ * closing voting: Results means final but private, so an audience member arriving
+ * there waits rather than being shown a result nobody has chosen to reveal.
+ *
+ * Asked from two places that must not spell the phase themselves: the waiting page,
+ * which shows the standings only once this is true, and the public standings read.
+ */
+export function showsStandings(phase: ContestPhase): boolean {
+	return phase === 'published';
 }
 
 /**

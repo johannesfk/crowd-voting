@@ -47,6 +47,9 @@ export class VotingAlreadyOpen extends Error {}
 /** Voting is not open, so there is nothing to close. */
 export class VotingNotOpen extends Error {}
 
+/** The standings are not final yet, so there is nothing to publish. */
+export class NothingToPublish extends Error {}
+
 /**
  * Closes Registration and opens Voting in one deliberate act, and returns the
  * Contest where it now stands.
@@ -92,6 +95,32 @@ export async function closeVoting(current: Contest): Promise<Contest> {
 	const [updated] = await getDb()
 		.update(contest)
 		.set({ phase: nextPhase(current.phase) as ContestPhase })
+		.where(eq(contest.id, current.id))
+		.returning();
+
+	return updated;
+}
+
+/**
+ * Makes the standings public, in one deliberate act, and stamps the moment.
+ *
+ * Separate from closing voting because they are two different decisions and the gap
+ * between them is the point: Results is final but private, so the operator gets to
+ * decide *when* the room finds out, rather than the room finding out the moment they
+ * stop the voting. That gap is where the Podium is presented.
+ *
+ * Irreversible by the machine's own rule — there is no edge back from Published, so
+ * there is no `unpublish`, and refusing a second publication rather than silently
+ * re-stamping the first is what makes that obvious to whoever tries.
+ */
+export async function publishResults(current: Contest): Promise<Contest> {
+	// Publication is only ever out of Results. Not out of Voting, because the result
+	// would still be moving; not out of Registration, because there is no result. The
+	// machine has no edge back from Published, so there is no `unpublish` either.
+	if (current.phase !== 'results') throw new NothingToPublish();
+	const [updated] = await getDb()
+		.update(contest)
+		.set({ phase: 'published', publishedAt: new Date() })
 		.where(eq(contest.id, current.id))
 		.returning();
 

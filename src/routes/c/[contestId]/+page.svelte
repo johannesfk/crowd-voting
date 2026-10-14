@@ -1,16 +1,52 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import * as Card from '#lib/components/ui/card/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
 	import { fieldClass } from '#lib/components/field.js';
 	import { MAX_VOTES } from '#lib/contest/ballot.js';
-	import { acceptsEntries, acceptsVotes } from '#lib/contest/phases.js';
+	import {
+		acceptsEntries,
+		acceptsVotes,
+		hasBeenScored,
+		isWaiting,
+		showsStandings
+	} from '#lib/contest/phases.js';
 	import { preparePhoto } from '#lib/photo/prepare-photo.js';
+	import { watchPublication } from '#lib/publication.remote.js';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	const published = $derived(showsStandings(data.contest.phase));
+
+	/**
+	 * The waiting page, held open on a finished-but-unpublished Contest. Subscribing
+	 * only while the result is still private is what keeps the connection from
+	 * outliving the question it exists to answer, and the wait resolves the moment the
+	 * operator publishes — no reload, no refresh, nobody catching it by luck.
+	 */
+	const waiting = $derived(isWaiting(data.contest.phase));
+	const revealed = $derived(waiting ? (await watchPublication(data.contest.id)).published : false);
+
+	// The live query can only say *that* the result is out; the standings themselves
+	// are this page's own data, so it is refetched once, on the transition. That is
+	// the app catching up with itself, not the guest refreshing: they are still
+	// holding the same page, and nothing they did moved.
+	//
+	// Once, and only on the transition, because an effect that re-reads `revealed`
+	// without remembering that it has already acted will re-fetch on every
+	// re-evaluation — including the ones hydration itself causes, which is a refetch
+	// in the middle of someone filling in a form.
+	let announced = $state(false);
+	$effect(() => {
+		if (revealed && !announced) {
+			announced = true;
+			invalidateAll();
+		}
+	});
 
 	// Two inputs, not one: modern Android dropped the camera tile from a plain
 	// image picker, so taking a photo is its own explicit action (ADR 0005).
@@ -97,7 +133,45 @@
 		<p class="text-sm text-muted-foreground">{data.contest.description}</p>
 	</header>
 
-	{#if data.hasVoted}
+	{#if published || revealed}
+		<Card.Root>
+			<Card.Header>
+				<h2 class="text-lg font-semibold">The result</h2>
+				<Card.Description>
+					{#if data.standings.length === 0}
+						No entries reached the ballot.
+					{:else}
+						Every pick counted the same, so a costume's place is how many people voted for it.
+					{/if}
+				</Card.Description>
+			</Card.Header>
+			<Card.Content>
+				<ol data-standings class="flex flex-col gap-2">
+					{#each data.standings as standing (standing.entryId)}
+						<li
+							data-standing={standing.entryId}
+							data-place={standing.place}
+							data-costume={standing.costume}
+							class="flex flex-row items-center gap-3"
+						>
+							<span data-place-label class="w-8 shrink-0 text-lg font-semibold tabular-nums">
+								{standing.place}
+							</span>
+							<img
+								src="/c/{data.contest.id}/entries/{standing.entryId}/photo"
+								alt="Photo of {standing.names.join(', ')}"
+								class="size-12 shrink-0 rounded-md border object-cover"
+							/>
+							<span class="flex flex-col gap-0.5">
+								<span class="font-medium">{standing.costume}</span>
+								<span class="text-xs text-muted-foreground">{standing.names.join(', ')}</span>
+							</span>
+						</li>
+					{/each}
+				</ol>
+			</Card.Content>
+		</Card.Root>
+	{:else if data.hasVoted}
 		<Card.Root>
 			<Card.Header>
 				<h2 class="text-lg font-semibold">Your vote is in</h2>
@@ -105,9 +179,14 @@
 			</Card.Header>
 			<Card.Content>
 				<p class="text-sm text-muted-foreground">
-					One ballot per device, and yours is spent. There is nothing to change — results appear at
-					this link when the operator publishes them.
+					One ballot per device, and yours is spent. There is nothing to change.
 				</p>
+				{#if waiting}
+					<p class="text-sm text-muted-foreground">
+						The result is final and not published yet. Leave this page open — it will show you the
+						standings the moment they are.
+					</p>
+				{/if}
 			</Card.Content>
 		</Card.Root>
 	{:else if voting}
@@ -222,7 +301,7 @@
 		<Card.Root>
 			<Card.Header>
 				<h2 class="text-lg font-semibold">
-					{#if ownEntry}
+					{#if ownEntry && data.contest.phase === 'registration'}
 						You are in
 					{:else if data.contest.phase === 'registration'}
 						Registration is closed
@@ -230,13 +309,20 @@
 						Voting has closed
 					{/if}
 				</h2>
-				<Card.Description>Keep this link — everything else happens here too.</Card.Description>
+				<Card.Description>
+					{#if hasBeenScored(data.contest.phase)}
+						The result is final and not published yet. Leave this page open — it will show you the
+						standings the moment they are.
+					{:else}
+						Keep this link — everything else happens here too.
+					{/if}
+				</Card.Description>
 			</Card.Header>
-			{#if ownEntry && data.contest.phase !== 'registration'}
+			{#if ownEntry && data.contest.phase === 'registration'}
 				<Card.Content>
 					<p class="text-sm text-muted-foreground">
-						{ownEntry.names.join(', ')} — {ownEntry.costume}. Your vote has been counted; the
-						results appear here when the operator publishes them.
+						{ownEntry.names.join(', ')} — {ownEntry.costume}. Entries are final, so there is nothing
+						to change.
 					</p>
 				</Card.Content>
 			{/if}

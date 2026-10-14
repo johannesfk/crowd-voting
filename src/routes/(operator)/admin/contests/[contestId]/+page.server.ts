@@ -5,7 +5,9 @@ import { readBoard } from '#lib/server/board.js';
 import {
 	closeVoting,
 	getContest,
+	NothingToPublish,
 	openVoting,
+	publishResults,
 	VotingAlreadyOpen,
 	VotingNotOpen
 } from '#lib/server/contest.js';
@@ -118,6 +120,34 @@ export const actions = {
 			return { phase: closed.phase };
 		} catch (cause) {
 			if (cause instanceof VotingNotOpen) return fail(409, { votingNotOpen: true });
+			throw cause;
+		}
+	},
+
+	/**
+	 * Makes the standings public. Deliberately its own action, with its own
+	 * confirmation, because the gap between closing voting and publishing is where the
+	 * result is presented — and because it is the one edge on this page that cannot be
+	 * walked back.
+	 */
+	publish: async ({ params, request, cookies }) => {
+		// Actions run before the layout's guard, so a posted form must not be able to
+		// act on the operator's behalf.
+		if (!(await isSignedIn(cookies))) redirect(303, '/admin/login');
+
+		const contest = await getContest(params.contestId);
+		if (contest === undefined) error(404, 'That Contest does not exist.');
+
+		const submitted = await request.formData();
+		if (formText(submitted.get('confirm')) !== 'publish') {
+			return fail(409, { confirmPublish: true });
+		}
+
+		try {
+			const published = await publishResults(contest);
+			return { phase: published.phase };
+		} catch (cause) {
+			if (cause instanceof NothingToPublish) return fail(409, { nothingToPublish: true });
 			throw cause;
 		}
 	}

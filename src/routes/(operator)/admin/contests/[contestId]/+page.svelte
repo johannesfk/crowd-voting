@@ -2,12 +2,7 @@
 	import * as Card from '#lib/components/ui/card/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import Board from '#lib/components/board.svelte';
-	import {
-		acceptsEntries,
-		acceptsVotes,
-		hasBeenScored,
-		PHASE_LABELS
-	} from '#lib/contest/phases.js';
+	import { acceptsEntries, acceptsVotes, hasBeenScored } from '#lib/contest/phases.js';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -79,10 +74,43 @@
 				<Button type="submit" variant="outline">Close voting</Button>
 			</form>
 		{/if}
+	{:else if data.contest.phase === 'results'}
+		<p data-contest-phase class="text-sm text-muted-foreground">
+			Results. The standings are final and nobody but you can see them yet — anyone on the contest
+			link is waiting.
+		</p>
+
+		{#if form?.confirmPublish}
+			<Card.Root data-confirm-publish class="border-destructive/40">
+				<Card.Header>
+					<Card.Title>Publish the result?</Card.Title>
+					<Card.Description>
+						Everyone on the contest link sees the standings the moment you do, and this cannot be
+						taken back.
+					</Card.Description>
+				</Card.Header>
+				<Card.Content class="flex gap-3">
+					<form method="POST" action="?/publish">
+						<input type="hidden" name="confirm" value="publish" />
+						<Button type="submit" variant="destructive">Yes, publish it</Button>
+					</form>
+					<Button href="/admin/contests/{data.contest.id}" variant="outline">Not yet</Button>
+				</Card.Content>
+			</Card.Root>
+		{:else}
+			<form method="POST" action="?/publish" class="pt-2">
+				<Button type="submit">Publish the result</Button>
+			</form>
+		{/if}
 	{:else}
 		<p data-contest-phase class="text-sm text-muted-foreground">
-			{PHASE_LABELS[data.contest.phase]}. Nothing here can be changed, and the standings are
-			{data.contest.phase === 'results' ? 'not public yet' : 'public at the contest link'}.
+			Published. The standings are public at the contest link, and nothing here can be changed.
+		</p>
+	{/if}
+
+	{#if form?.nothingToPublish}
+		<p class="text-sm text-destructive">
+			There is no result to publish: voting has not been closed yet.
 		</p>
 	{/if}
 

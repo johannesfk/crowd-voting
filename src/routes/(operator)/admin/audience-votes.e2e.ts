@@ -548,10 +548,11 @@ test.describe('the operator', () => {
 		await expect(operatorPage.locator('[data-voting-open]')).toBeVisible();
 
 		// The entry list is frozen the moment voting opens, which is what stops a
-		// costume vanishing from a ballot that has already been cast.
-		const hideButtons = operatorPage.getByRole('button', { name: 'Hide from the ballot' });
-		await expect(hideButtons).toHaveCount(ENTRANCES.slice(0, 2).length);
-		for (const button of await hideButtons.all()) await expect(button).toBeDisabled();
+		// costume vanishing from a ballot that has already been cast. Frozen means the
+		// control is gone, not merely inert: a disabled button is one a tired operator
+		// clicks anyway.
+		await expect(operatorPage.getByRole('button', { name: 'Hide from the ballot' })).toHaveCount(0);
+		await expect(operatorPage.getByText('The list is frozen while voting is open.')).toBeVisible();
 
 		// Same link, different form: nobody has to be told a second URL.
 		await page.reload();

@@ -112,10 +112,12 @@ export async function enter(
 	// generously for it. The preview is drawn by the photo handler, which only exists
 	// once the page has hydrated; the submit button stays disabled until that handler
 	// has run, so a click landing before hydration hits a disabled button and does
-	// nothing at all. Hydration plus a decode is quick on an idle machine and
-	// genuinely slow with six suites running at once, which is the only reason this
-	// wait is longer than the default.
-	await expect(page.locator('[data-photo-preview]')).toBeVisible({ timeout: 20_000 });
+	// nothing at all.
+	//
+	// Generous because this is the suite's one load-sensitive wait: hydration is quick
+	// on an idle machine and genuinely slow with the whole suite in parallel, where
+	// the browser is one of many competing for it.
+	await expect(page.locator('[data-photo-preview]')).toBeVisible({ timeout: 30_000 });
 
 	await page.getByRole('button', { name: 'Enter the contest' }).click();
 	await expect(page.getByRole('heading', { name: 'You are in' })).toBeVisible();
@@ -163,6 +165,20 @@ export async function vote(
 	await expect(page.getByRole('heading', { name: 'Your vote is in' })).toBeVisible();
 
 	return page;
+}
+
+/**
+/**
+ * Opens the audience link.
+ *
+ * An ordinary `goto`, deliberately. A waiting page holds a live subscription, and
+ * waiting on `load` or `domcontentloaded` here looked like a reasonable accommodation
+ * for that; it was not. It hid a generator that never yielded at all, so the page's
+ * own render hung and every navigation to it timed out. The fix belongs in the
+ * generator, and this helper staying ordinary is what keeps it visible next time.
+ */
+export async function openAudience(page: Page, contestId: string): Promise<void> {
+	await page.goto(`/c/${contestId}`);
 }
 
 /** Casts one Ballot per device, each from a browser of its own. */

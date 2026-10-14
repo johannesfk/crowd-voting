@@ -1,6 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { orderBallot } from '#lib/contest/ballot.js';
-import { acceptsVotes } from '#lib/contest/phases.js';
+import { acceptsVotes, showsStandings } from '#lib/contest/phases.js';
 import { parseParticipants } from '#lib/contest/registration.js';
 import {
 	AlreadyVoted,
@@ -12,6 +12,7 @@ import {
 	TooManyPicks,
 	VotingClosed
 } from '#lib/server/ballot.js';
+import { readPublicStandings } from '#lib/server/board.js';
 import { getContest } from '#lib/server/contest.js';
 import { resolveDevice } from '#lib/server/device.js';
 import {
@@ -62,6 +63,12 @@ export const load: PageServerLoad = async ({ params, cookies, request }) => {
 	const ballotOwnEntry = ownEntry?.hidden === true ? undefined : ownEntry;
 	const entries = votable.filter((candidate) => candidate.id !== ballotOwnEntry?.id);
 
+	// The standings, but only once they are public. `readPublicStandings` is a
+	// separate read from the operator's Board precisely so that the advisory
+	// Duplicate signal and the ballot count cannot reach the room by accident — it
+	// returns names, costumes and places and nothing else.
+	const standings = showsStandings(contest.phase) ? await readPublicStandings(contest.id) : [];
+
 	return {
 		contest: {
 			id: contest.id,
@@ -74,6 +81,7 @@ export const load: PageServerLoad = async ({ params, cookies, request }) => {
 		ownEntry,
 		ballotOwnEntry,
 		entries,
+		standings,
 		hasVoted
 	};
 };

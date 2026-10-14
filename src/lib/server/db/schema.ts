@@ -20,6 +20,10 @@ export const contest = sqliteTable('contest', {
 	registrationNotice: text('registration_notice'),
 	votingNotice: text('voting_notice'),
 	phase: text('phase').$type<ContestPhase>().notNull().default(INITIAL_PHASE),
+	// When the operator made the standings public, and `null` until they do. Kept as
+	// a moment rather than only as the phase, because "published an hour ago" is a
+	// thing the audience link shows and a phase name is not.
+	publishedAt: integer('published_at', { mode: 'timestamp_ms' }),
 	// Milliseconds, not seconds: the operator creates several Contests in the
 	// same sitting, and a coarser resolution ties them so "newest first" is no
 	// order at all.
