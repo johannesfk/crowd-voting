@@ -1,7 +1,7 @@
 <script lang="ts">
 	import * as Card from '#lib/components/ui/card/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
-	import { acceptsEntries } from '#lib/contest/phases.js';
+	import { acceptsEntries, acceptsVotes, PHASE_LABELS } from '#lib/contest/phases.js';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -9,6 +9,7 @@
 	// The entry list freezes the moment voting opens, and that is the operator's
 	// one control over what reaches the ballot.
 	const modifiable = $derived(acceptsEntries(data.contest.phase));
+	const voting = $derived(acceptsVotes(data.contest.phase));
 </script>
 
 <svelte:head>
@@ -23,7 +24,30 @@
 			: `${data.onBallot} of ${data.entries.length} will be on the ballot.`}
 		Share the contest link: <span class="font-mono">/c/{data.contest.id}</span>
 	</p>
+
+	{#if modifiable}
+		<form method="POST" action="?/openVoting" class="pt-2">
+			<Button type="submit">Close registration and open voting</Button>
+		</form>
+		<p class="text-sm text-muted-foreground">
+			Voting takes over the contest link, and the entry list freezes: nothing can be changed once
+			the ballot is live.
+		</p>
+	{:else if voting}
+		<p data-voting-open class="text-sm text-muted-foreground">
+			Voting is open. The audience is casting ballots at the contest link.
+		</p>
+	{:else}
+		<p data-contest-phase class="text-sm text-muted-foreground">
+			{PHASE_LABELS[data.contest.phase]}. Nothing here can be changed, and the standings are
+			{data.contest.phase === 'results' ? 'not public yet' : 'public at the contest link'}.
+		</p>
+	{/if}
 </header>
+
+{#if form?.alreadyOpen}
+	<p class="text-sm text-destructive">Voting is already open for this Contest.</p>
+{/if}
 
 {#if form?.frozen}
 	<p class="text-sm text-destructive">
@@ -86,6 +110,6 @@
 {/if}
 
 <p class="text-sm text-muted-foreground">
-	Hiding an Entry removes it from the ballot and the standings without touching anybody's vote.
+	Hiding an Entry takes it off the ballot and the standings without touching anybody's vote.
 	{#if !modifiable}The list is frozen while voting is open.{/if}
 </p>

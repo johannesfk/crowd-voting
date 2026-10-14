@@ -1,6 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { isSignedIn } from '#lib/server/auth.js';
-import { getContest } from '#lib/server/contest.js';
+import { getContest, openVoting, VotingAlreadyOpen } from '#lib/server/contest.js';
 import {
 	EntryListFrozen,
 	listEntries,
@@ -53,5 +53,27 @@ export const actions = {
 		}
 
 		return { hidden: entryId, nowHidden: hidden };
+	},
+
+	/**
+	 * Closes Registration and opens Voting in one action — the single handover
+	 * moment. Whether that move is legal is the contest module's question, not this
+	 * route's, so a Contest that is already past Registration is refused there.
+	 */
+	openVoting: async ({ params, cookies }) => {
+		// Actions run before the layout's guard, so a posted form must not be able to
+		// act on the operator's behalf.
+		if (!(await isSignedIn(cookies))) redirect(303, '/admin/login');
+
+		const contest = await getContest(params.contestId);
+		if (contest === undefined) error(404, 'That Contest does not exist.');
+
+		try {
+			const opened = await openVoting(contest);
+			return { phase: opened.phase };
+		} catch (cause) {
+			if (cause instanceof VotingAlreadyOpen) return fail(409, { alreadyOpen: true });
+			throw cause;
+		}
 	}
 } satisfies Actions;

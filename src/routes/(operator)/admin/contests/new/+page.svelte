@@ -43,15 +43,18 @@
 					rows="3"
 					required
 					aria-invalid={form?.invalidContest ? true : undefined}
-					class={fieldClass}>{form?.description ?? ''}</textarea
-				>
+					class={fieldClass}
+					defaultValue={form?.description ?? ''}></textarea>
 			</div>
 
 			<div class="flex flex-col gap-2">
 				<Label for="registrationNotice">Note for people signing up</Label>
-				<textarea id="registrationNotice" name="registrationNotice" rows="2" class={fieldClass}
-					>{form?.registrationNotice ?? ''}</textarea
-				>
+				<textarea
+					id="registrationNotice"
+					name="registrationNotice"
+					rows="2"
+					class={fieldClass}
+					defaultValue={form?.registrationNotice ?? ''}></textarea>
 				<p class="text-sm text-muted-foreground">
 					Optional. Shown on the registration form — say whether people may enter alone or as a
 					group.
@@ -60,9 +63,12 @@
 
 			<div class="flex flex-col gap-2">
 				<Label for="votingNotice">Note for people voting</Label>
-				<textarea id="votingNotice" name="votingNotice" rows="2" class={fieldClass}
-					>{form?.votingNotice ?? ''}</textarea
-				>
+				<textarea
+					id="votingNotice"
+					name="votingNotice"
+					rows="2"
+					class={fieldClass}
+					defaultValue={form?.votingNotice ?? ''}></textarea>
 				<p class="text-sm text-muted-foreground">
 					Optional. Shown on the ballot — say how many costumes people may choose.
 				</p>

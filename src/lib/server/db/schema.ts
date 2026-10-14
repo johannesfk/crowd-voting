@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { INITIAL_PHASE, type ContestPhase } from '#lib/contest/phases.js';
 
 /**
@@ -7,7 +7,7 @@ import { INITIAL_PHASE, type ContestPhase } from '#lib/contest/phases.js';
  * through the phases (see `#lib/contest/phases.js`).
  *
  * The ballot and vote tables arrive with the tickets that need them; the tables
- * below are everything an Entry needs to exist.
+ * below are everything an Entry needs to exist, plus the Ballot and its Votes.
  */
 export const contest = sqliteTable('contest', {
 	id: text('id')
@@ -105,4 +105,51 @@ export const participant = sqliteTable(
 		position: integer('position').notNull()
 	},
 	(table) => [uniqueIndex('participant_entry_position').on(table.entryId, table.position)]
+);
+
+/**
+ * The choices one device cast in one Contest. There is at most one per device per
+ * Contest, ever, and that is a database constraint rather than a check in a
+ * route: casting is final, so a second Ballot is not a replacement, it is a bug
+ * (ADR 0004).
+ *
+ * The Ballot holds no weight of its own. A Vote is one selected Entry and every
+ * Vote weighs the same, so there is nothing on this table about a person
+ * preferring one pick to another.
+ */
+export const ballot = sqliteTable(
+	'ballot',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		contestId: text('contest_id')
+			.notNull()
+			.references(() => contest.id, { onDelete: 'cascade' }),
+		deviceId: text('device_id')
+			.notNull()
+			.references(() => device.id),
+		castAt: integer('cast_at', { mode: 'timestamp_ms' })
+			.notNull()
+			.$defaultFn(() => new Date())
+	},
+	(table) => [uniqueIndex('ballot_contest_device').on(table.contestId, table.deviceId)]
+);
+
+/**
+ * One selected Entry within a Ballot. The composite primary key is the rule that
+ * an Entry cannot be picked twice on one ballot: the second insert fails at the
+ * database rather than being remembered by whoever wrote the route.
+ */
+export const vote = sqliteTable(
+	'vote',
+	{
+		ballotId: text('ballot_id')
+			.notNull()
+			.references(() => ballot.id, { onDelete: 'cascade' }),
+		entryId: text('entry_id')
+			.notNull()
+			.references(() => entry.id, { onDelete: 'cascade' })
+	},
+	(table) => [primaryKey({ columns: [table.ballotId, table.entryId] })]
 );

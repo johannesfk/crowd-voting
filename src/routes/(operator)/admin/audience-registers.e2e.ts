@@ -1,83 +1,18 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
-import { png } from '../../../../test/png.js';
+import { expect, test, type Page } from '@playwright/test';
+import {
+	createContest,
+	enter,
+	fillEntries,
+	LIBRARY_PHOTO,
+	photo,
+	postForm,
+	replayRegistration,
+	signIn
+} from '../../../../test/contest.js';
 
-/**
- * The operator password is a deployment secret: production takes it from
- * `wrangler secret put`, local runs from `.dev.vars`. The suite reads the same file
- * the worker does rather than hardcoding a password.
- */
-if (existsSync('.dev.vars')) process.loadEnvFile('.dev.vars');
-
-const password = requiredPassword();
-
-function requiredPassword(): string {
-	const configured = process.env.OPERATOR_PASSWORD;
-	if (configured === undefined || configured === '') {
-		throw new Error(
-			'No operator password: set OPERATOR_PASSWORD or copy .dev.vars.example to .dev.vars.'
-		);
-	}
-	return configured;
-}
-
-/** Titles are unique per run, because the local database outlives the suite. */
-const stamp = () => Date.now().toString(36);
-
-/** The library input, as opposed to the camera one, which asks for a capture. */
-const LIBRARY_PHOTO = 'input[type="file"][accept="image/*"]:not([capture])';
-
-/** A plain picture, small enough that the browser has no reason to touch it. */
-function photo(size = { width: 120, height: 90, noise: false }) {
-	return {
-		name: 'costume.png',
-		mimeType: 'image/png',
-		buffer: png(size.width, size.height, size.noise)
-	};
-}
-
-async function signIn(page: Page) {
-	await page.goto('/admin/login');
-	await page.getByLabel('Shared password').fill(password);
-	await page.getByRole('button', { name: 'Sign in' }).click();
-	await expect(page.getByRole('heading', { name: 'Contests' })).toBeVisible();
-}
-
-/** Creates a Contest and returns its unguessable identifier. */
-async function createContest(page: Page, notice: string): Promise<string> {
-	const title = `Halloween party ${stamp()}`;
-
-	await page.goto('/admin/contests/new');
-	await page.getByLabel('Title').fill(title);
-	await page.getByLabel('Description').fill('One night, every costume on campus.');
-	await page.getByLabel('Note for people signing up').fill(notice);
-	await page.getByRole('button', { name: 'Create Contest' }).click();
-
-	const row = page.locator('[data-contest-id]').filter({ hasText: title });
-	await expect(row).toBeVisible();
-	const id = await row.getAttribute('data-contest-id');
-	if (id === null) throw new Error('The new Contest has no identifier.');
-	return id;
-}
-
-/** One guest, on their own device, entering the Contest. */
-async function enter(
-	context: BrowserContext,
-	contestId: string,
-	names: string,
-	costume: string,
-	picture = photo()
-) {
-	const page = await context.newPage();
-	await page.goto(`/c/${contestId}`);
-	await page.getByLabel('Everyone in this costume').fill(names);
-	await page.getByLabel('What are you dressed up as?').fill(costume);
-	await page.locator(LIBRARY_PHOTO).setInputFiles(picture);
-	await page.getByRole('button', { name: 'Enter the contest' }).click();
-	await expect(page.getByRole('heading', { name: 'You are in' })).toBeVisible();
-	return page;
-}
+/** The sign-up notice the operator writes, shown on the audience's form. */
+const SIGN_UP_NOTICE = 'Enter alone or as a group.';
 
 /**
  * The width the browser actually stored, which is the only honest way to see
@@ -104,17 +39,48 @@ async function storedType(entry: ReturnType<Page['locator']>): Promise<string | 
 }
 
 test.describe('an audience member', () => {
+	test('does not lose what they typed while the page was still loading', async ({ browser }) => {
+		// SvelteKit replaces the server-rendered DOM when the page hydrates. A field
+		// whose value came from a server-rendered text child is rewritten at that
+		// moment, so anything a guest typed into it first is wiped — and they find
+		// out only by being told their name is missing. This is the case a guest on
+		// venue wifi hits: the page appears, they start typing, and the bundle
+		// finishes loading underneath them.
+		const operator = await browser.newContext();
+		const operatorPage = await operator.newPage();
+		await signIn(operatorPage);
+		const contestId = await createContest(operatorPage, { registration: SIGN_UP_NOTICE });
+
+		const guest = await browser.newContext();
+		const page = await guest.newPage();
+		await page.goto(`/c/${contestId}`);
+		await page.getByLabel('Everyone in this costume').fill('Ada Lovelace, Alan Turing');
+		await page.getByLabel('What are you dressed up as?').fill('Time travellers');
+		await page.locator(LIBRARY_PHOTO).setInputFiles(photo());
+
+		// Long enough for hydration to have run and rewritten whatever it rewrites.
+		await page.waitForTimeout(500);
+		await page.getByRole('button', { name: 'Enter the contest' }).click();
+		await expect(page.getByRole('heading', { name: 'You are in' })).toBeVisible();
+
+		// Every name they typed is still there, so the entry is the whole group.
+		await expect(page.getByText('Ada Lovelace, Alan Turing')).toBeVisible();
+
+		await guest.close();
+		await operator.close();
+	});
+
 	test('enters a group, and the operator sees it with its photo and names', async ({ browser }) => {
 		const operator = await browser.newContext();
 		const operatorPage = await operator.newPage();
 		await signIn(operatorPage);
-		const contestId = await createContest(operatorPage, 'Enter alone or as a group.');
+		const contestId = await createContest(operatorPage, { registration: SIGN_UP_NOTICE });
 
 		// The sign-up notice is the operator's own words, on the audience's form.
 		const guest = await browser.newContext();
 		const page = await guest.newPage();
 		await page.goto(`/c/${contestId}`);
-		await expect(page.getByText('Enter alone or as a group.')).toBeVisible();
+		await expect(page.getByText(SIGN_UP_NOTICE)).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Enter the contest' })).toBeVisible();
 
 		// Both photo routes are offered explicitly: a plain image picker on modern
@@ -163,7 +129,7 @@ test.describe('an audience member', () => {
 		const operator = await browser.newContext();
 		const operatorPage = await operator.newPage();
 		await signIn(operatorPage);
-		const contestId = await createContest(operatorPage, 'Enter alone or as a group.');
+		const contestId = await createContest(operatorPage, { registration: SIGN_UP_NOTICE });
 
 		const guest = await browser.newContext();
 		await enter(guest, contestId, 'Katherine Johnson', 'Astronaut');
@@ -191,7 +157,7 @@ test.describe('an audience member', () => {
 		const operator = await browser.newContext();
 		const operatorPage = await operator.newPage();
 		await signIn(operatorPage);
-		const contestId = await createContest(operatorPage, 'Enter alone or as a group.');
+		const contestId = await createContest(operatorPage, { registration: SIGN_UP_NOTICE });
 
 		// 1800px on the long edge, and far too many bytes to upload as they are:
 		// exactly the phone camera case the browser pipeline exists for.
@@ -235,26 +201,15 @@ test.describe('an audience member', () => {
 		const operator = await browser.newContext();
 		const operatorPage = await operator.newPage();
 		await signIn(operatorPage);
-		const contestId = await createContest(operatorPage, 'Enter alone or as a group.');
+		const contestId = await createContest(operatorPage, { registration: SIGN_UP_NOTICE });
 
 		const guest = await browser.newContext();
 		const page = await enter(guest, contestId, 'Dorothy Vaughan', 'Whiz Kid');
-
 		// Registration is final, so a replayed post from the same device lands back
-		// on the confirmation rather than adding a second Entry.
-		const baseURL = test.info().project.use.baseURL ?? 'http://localhost:4173';
-		const response = await page.request.post(`/c/${contestId}`, {
-			multipart: {
-				participants: 'Someone Else',
-				costume: 'A second costume',
-				photo: photo()
-			},
-			headers: { origin: baseURL }
-		});
-
-		// SvelteKit answers a form action with the outcome as a body, redirects and
-		// all, rather than as a 303 of its own.
-		expect(await response.json()).toMatchObject({
+		// on the confirmation rather than adding a second Entry. SvelteKit answers a
+		// form action with the outcome as a body, redirects and all, rather than as a
+		// 303 of its own.
+		expect(await replayRegistration(page, contestId)).toMatchObject({
 			type: 'redirect',
 			status: 303,
 			location: `/c/${contestId}`
@@ -277,16 +232,12 @@ test.describe('the operator', () => {
 		const operator = await browser.newContext();
 		const operatorPage = await operator.newPage();
 		await signIn(operatorPage);
-		const contestId = await createContest(operatorPage, 'Enter alone or as a group.');
+		const contestId = await createContest(operatorPage, { registration: SIGN_UP_NOTICE });
 
-		for (const [names, costume] of [
-			['Ada Lovelace', 'Time travellers'],
-			['Alan Turing', 'Enigma']
-		]) {
-			const guest = await browser.newContext();
-			await enter(guest, contestId, names, costume);
-			await guest.close();
-		}
+		await fillEntries(browser, contestId, [
+			{ names: 'Ada Lovelace', costume: 'Time travellers' },
+			{ names: 'Alan Turing', costume: 'Enigma' }
+		]);
 
 		await operatorPage.goto(`/admin/contests/${contestId}`);
 		await expect(operatorPage.getByText('2 of 2 will be on the ballot.')).toBeVisible();
@@ -295,12 +246,13 @@ test.describe('the operator', () => {
 		await hidden.getByRole('button', { name: 'Hide from the ballot' }).click();
 
 		// A Hidden Entry leaves the ballot and the standings, and stays in front of
-		// the operator so the decision can be seen and undone.
-		await expect(hidden.getByText('Hidden')).toBeVisible();
+		// the operator so the decision can be seen and undone. The label is matched
+		// exactly: the prose around it is allowed to mention hiding an Entry.
+		await expect(hidden.getByText('Hidden', { exact: true })).toBeVisible();
 		await expect(operatorPage.getByText('1 of 2 will be on the ballot.')).toBeVisible();
 
 		await hidden.getByRole('button', { name: 'Put back on the ballot' }).click();
-		await expect(operatorPage.getByText('Hidden')).toHaveCount(0);
+		await expect(operatorPage.getByText('Hidden', { exact: true })).toHaveCount(0);
 		await expect(operatorPage.getByText('2 of 2 will be on the ballot.')).toBeVisible();
 
 		await operator.close();
@@ -310,7 +262,7 @@ test.describe('the operator', () => {
 		const operator = await browser.newContext();
 		const operatorPage = await operator.newPage();
 		await signIn(operatorPage);
-		const contestId = await createContest(operatorPage, 'Enter alone or as a group.');
+		const contestId = await createContest(operatorPage, { registration: SIGN_UP_NOTICE });
 
 		const guest = await browser.newContext();
 		await enter(guest, contestId, 'Mary Jackson', 'Aeronaut');
@@ -321,13 +273,9 @@ test.describe('the operator', () => {
 
 		// The action runs before the layout's guard, so posting straight at it is
 		// the only way in that a browser cannot take.
-		const baseURL = test.info().project.use.baseURL ?? 'http://localhost:4173';
-		const response = await guest.request.post(`/admin/contests/${contestId}?/hide`, {
-			form: { entryId, hidden: 'true' },
-			headers: { origin: baseURL }
-		});
-
-		expect(await response.json()).toMatchObject({
+		expect(
+			await postForm(guest, `/admin/contests/${contestId}?/hide`, { entryId, hidden: 'true' })
+		).toMatchObject({
 			type: 'redirect',
 			status: 303,
 			location: '/admin/login'
@@ -336,7 +284,7 @@ test.describe('the operator', () => {
 		// Nothing was hidden.
 		await operatorPage.reload();
 		await expect(operatorPage.getByText('1 of 1 will be on the ballot.')).toBeVisible();
-		await expect(operatorPage.getByText('Hidden')).toHaveCount(0);
+		await expect(operatorPage.getByText('Hidden', { exact: true })).toHaveCount(0);
 
 		await guest.close();
 		await operator.close();

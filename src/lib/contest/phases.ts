@@ -23,6 +23,26 @@ export function acceptsEntries(phase: ContestPhase): boolean {
 }
 
 /**
+ * Whether a Contest in this phase takes a Ballot. Voting is the one edge of the
+ * machine that answers it, and the question is asked from two places that must
+ * not spell the phase themselves: the page that serves the ballot, and the
+ * module that records one.
+ */
+export function acceptsVotes(phase: ContestPhase): boolean {
+	return phase === 'voting';
+}
+
+/**
+ * Whether an Entry's photograph may be shown to the audience. Photographs of
+ * guests are a surprise until the ballot opens (story 86), so they are served
+ * from Voting onwards and never during Registration — which is the same edge the
+ * entries themselves are frozen at.
+ */
+export function showsPhotos(phase: ContestPhase): boolean {
+	return !acceptsEntries(phase);
+}
+
+/**
  * The phase a Contest moves to from `current`, or `null` when it can move no
  * further. Every transition goes through here, so an edge that does not exist —
  * a backwards move, a jump over Voting, a second Publication — is refused

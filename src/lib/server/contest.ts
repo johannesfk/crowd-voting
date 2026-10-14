@@ -3,6 +3,7 @@
 // phases in `#lib/contest/phases.js` — live in the domain modules.
 
 import { desc, eq } from 'drizzle-orm';
+import { acceptsEntries, nextPhase, type ContestPhase } from '#lib/contest/phases.js';
 import { getDb } from './db/index.js';
 import { contest } from './db/schema.js';
 
@@ -35,4 +36,37 @@ export async function getContest(id: string): Promise<Contest | undefined> {
 export async function createContest(input: NewContest): Promise<Contest> {
 	const [created] = await getDb().insert(contest).values(input).returning();
 	return created;
+}
+
+/** A Contest with nowhere left to go: Published is the end of the machine. */
+export class NoNextPhase extends Error {}
+
+/** Registration is not open, so there is no voting to open. */
+export class VotingAlreadyOpen extends Error {}
+
+/**
+ * Closes Registration and opens Voting in one deliberate act, and returns the
+ * Contest where it now stands.
+ *
+ * This is a named edge rather than a generic one-step move on purpose. Registration
+ * → Voting is the handover, and it is the only edge that may be taken from
+ * Registration; a generic `advanceContest` callable from anywhere would let a later
+ * ticket close voting by accident, skipping the deliberate close that the results
+ * are supposed to depend on. The phase itself is still the machine's to decide:
+ * this refuses to move a Contest that is not in Registration rather than guessing.
+ */
+export async function openVoting(current: Contest): Promise<Contest> {
+	if (!acceptsEntries(current.phase)) throw new VotingAlreadyOpen();
+
+	// `acceptsEntries` is true only in Registration and the machine's next edge out
+	// of Registration is Voting, so this is never null here.
+	const next = nextPhase(current.phase) as ContestPhase;
+
+	const [updated] = await getDb()
+		.update(contest)
+		.set({ phase: next })
+		.where(eq(contest.id, current.id))
+		.returning();
+
+	return updated;
 }

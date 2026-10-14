@@ -60,6 +60,21 @@ export async function listVisibleEntries(contestId: string): Promise<EntryWithNa
 	return all.filter((row) => !row.hidden);
 }
 
+/**
+ * This device's own Entry as the ballot may show it: nothing if the operator has
+ * hidden it. A Hidden Entry is not votable and does not appear in results
+ * (GLOSSARY), so it is not pinned on the ballot either — the registering device
+ * sees it on the ballot as though it had never entered, which is the only reading
+ * consistent with every other device's ballot.
+ */
+export async function findVisibleEntryByDevice(
+	contestId: string,
+	deviceId: string
+): Promise<EntryWithNames | undefined> {
+	const found = await findEntryByDevice(contestId, deviceId);
+	return found?.hidden === true ? undefined : found;
+}
+
 export async function findEntry(contestId: string, entryId: string): Promise<Entry | undefined> {
 	return getDb()
 		.select()
@@ -71,6 +86,15 @@ export async function findEntry(contestId: string, entryId: string): Promise<Ent
 /**
  * What this device has already registered, so a returning visitor is told they
  * have entered rather than being shown the form again.
+ */
+/**
+ * What this device registered, hidden or not. The registration confirmation still
+ * names an Entry the operator has since hidden — they did enter, and telling them
+ * otherwise would be a lie — so this is what the confirmation reads.
+ *
+ * The ballot does not use this: an Own Entry that the operator hid must be absent
+ * from the ballot entirely rather than pinned there unselectable (story 42), so the
+ * ballot reads the visible one below.
  */
 export async function findEntryByDevice(
 	contestId: string,
