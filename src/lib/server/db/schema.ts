@@ -1,5 +1,6 @@
 import { integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { INITIAL_PHASE, type ContestPhase } from '#lib/contest/phases.js';
+import { DEFAULT_PODIUM_BACKGROUND } from '#lib/contest/podium.js';
 
 /**
  * A Contest: one party or event, from Registration through Voting to a Published
@@ -24,6 +25,14 @@ export const contest = sqliteTable('contest', {
 	// a moment rather than only as the phase, because "published an hour ago" is a
 	// thing the audience link shows and a phase name is not.
 	publishedAt: integer('published_at', { mode: 'timestamp_ms' }),
+	// The Podium's background, per Contest: an opaque colour for a projector, or
+	// `null` meaning fully transparent, so the reveal composites over video in OBS.
+	// Never a third value meaning "let the browser decide" — a transparent background
+	// has to composite as transparent on the projector and in the exported image alike,
+	// so what the operator picked is what is stored.
+	presentationBackground: text('presentation_background').$defaultFn(
+		() => DEFAULT_PODIUM_BACKGROUND
+	),
 	// Milliseconds, not seconds: the operator creates several Contests in the
 	// same sitting, and a coarser resolution ties them so "newest first" is no
 	// order at all.

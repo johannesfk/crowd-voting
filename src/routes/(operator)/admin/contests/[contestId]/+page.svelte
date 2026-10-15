@@ -1,8 +1,12 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import * as Card from '#lib/components/ui/card/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
+	import { Input } from '#lib/components/ui/input/index.js';
+	import { Label } from '#lib/components/ui/label/index.js';
 	import Board from '#lib/components/board.svelte';
-	import { acceptsEntries, acceptsVotes, hasBeenScored } from '#lib/contest/phases.js';
+	import { acceptsEntries, acceptsVotes, canPresent, hasBeenScored } from '#lib/contest/phases.js';
+	import { DEFAULT_PODIUM_BACKGROUND } from '#lib/contest/podium.js';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -14,6 +18,29 @@
 	// Once voting has been open at all, the Board is worth showing: after it closes
 	// the result is final, and the operator is the one who publishes and presents it.
 	const scored = $derived(hasBeenScored(data.contest.phase));
+	// There is nothing final to reveal until voting has closed, so the Presentation is
+	// offered from Results onwards — and it stays available after publication, because
+	// a party that wants to replay the reveal should not have to fake a phase.
+	const presentable = $derived(canPresent(data.contest.phase));
+
+	// The Podium's background, editable before it is saved. Held here rather than read
+	// straight off the Contest so that unchecking "transparent" brings the colour back —
+	// an operator setting this up at seven in the evening has to see what they are
+	// choosing without saving and reloading first. Seeded once from what was saved:
+	// re-seeding on every load would throw away whatever they had just changed.
+	let podiumTransparent = $state(untrack(() => data.contest.background === null));
+	let colour = $state(untrack(() => data.contest.background ?? DEFAULT_PODIUM_BACKGROUND));
+
+	// …but re-seeded when the operator moves to another Contest from the list, which is a
+	// client-side navigation that never re-runs this component. Without it, Contest A's
+	// colour would still be in the box when they opened Contest B.
+	let editingContest = $state(untrack(() => data.contest.id));
+	$effect(() => {
+		if (data.contest.id === editingContest) return;
+		editingContest = data.contest.id;
+		podiumTransparent = data.contest.background === null;
+		colour = data.contest.background ?? DEFAULT_PODIUM_BACKGROUND;
+	});
 </script>
 
 <svelte:head>
@@ -122,6 +149,68 @@
 {#if scored}
 	<Board contestId={data.contest.id} frozen={!voting} />
 {/if}
+
+<!--
+	The Podium, configured here rather than on the reveal itself: this page is where the
+	operator sets a Contest up, and the reveal is a full-screen view with nothing on it but
+	the result. Shown before voting has closed too, because choosing the colour at seven in
+	the evening beats choosing it while standing in front of a room.
+-->
+<Card.Root data-podium>
+	<Card.Header>
+		<Card.Title>Podium</Card.Title>
+		<Card.Description>
+			{#if presentable}
+				Present the result full screen on a projector or through a capture card. Every step of the
+				reveal waits for a keypress.
+			{:else}
+				The reveal opens once voting has closed and the result has stopped moving.
+			{/if}
+		</Card.Description>
+	</Card.Header>
+
+	<Card.Content class="flex flex-col gap-4">
+		{#if presentable}
+			<Button href="/admin/presentation/{data.contest.id}" data-open-presentation
+				>Open the Presentation</Button
+			>
+		{/if}
+
+		<form method="POST" action="?/background" class="flex flex-col gap-4">
+			<div class="flex flex-row items-end gap-4">
+				<div class="flex flex-col gap-1.5">
+					<Label for="podium-background">Background</Label>
+					<Input
+						id="podium-background"
+						name="background"
+						type="color"
+						bind:value={colour}
+						disabled={podiumTransparent}
+						class="h-9 w-20 p-1"
+					/>
+				</div>
+
+				<label class="flex flex-row items-center gap-2 pb-2 text-sm">
+					<input
+						name="transparent"
+						type="checkbox"
+						value="on"
+						bind:checked={podiumTransparent}
+						class="size-4 rounded border-input"
+					/>
+					Transparent, to composite over video
+				</label>
+			</div>
+
+			<p class="text-sm text-muted-foreground">
+				A transparent Podium composites over whatever is behind it in OBS. The title and the cards
+				keep their own backing, so the names stay readable either way.
+			</p>
+
+			<Button type="submit" variant="outline" data-save-background>Save background</Button>
+		</form>
+	</Card.Content>
+</Card.Root>
 
 {#if form?.frozen}
 	<p class="text-sm text-destructive">

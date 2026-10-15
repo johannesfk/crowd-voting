@@ -82,6 +82,22 @@ export function showsStandings(phase: ContestPhase): boolean {
 }
 
 /**
+ * Whether the operator may present the Podium for a Contest in this phase.
+ *
+ * Results and Published only. The gap between closing voting and publishing is exactly
+ * where the result is presented, so Results has to allow it — and Published still does,
+ * because a party that wants to replay the reveal an hour later should not have to fake
+ * a phase to get there. Voting does not: the counts are still moving, and a reveal on a
+ * projector in front of the room cannot be taken back.
+ *
+ * Asked from two places that must not spell the phase themselves: the admin page, which
+ * offers the Presentation, and the Presentation route, which refuses to serve one.
+ */
+export function canPresent(phase: ContestPhase): boolean {
+	return phase === 'results' || phase === 'published';
+}
+
+/**
  * The phase a Contest moves to from `current`, or `null` when it can move no
  * further. Every transition goes through here, so an edge that does not exist —
  * a backwards move, a jump over Voting, a second Publication — is refused

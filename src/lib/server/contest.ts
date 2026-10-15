@@ -126,3 +126,26 @@ export async function publishResults(current: Contest): Promise<Contest> {
 
 	return updated;
 }
+
+/**
+ * Sets the background the Podium presents on for this Contest: an opaque colour, or
+ * `null` for transparent.
+ *
+ * Writable in any phase, which is the one deliberate exception to this module's habit of
+ * refusing anything once the machine has moved. Setting a background is presentation
+ * setup rather than a step on the result: an operator who picks the wrong colour at
+ * seven in the evening must be able to change it at half past, and refusing that would
+ * mean a Contest could not be presented at all.
+ */
+export async function setPresentationBackground(
+	current: Contest,
+	background: string | null
+): Promise<Contest> {
+	const [updated] = await getDb()
+		.update(contest)
+		.set({ presentationBackground: background })
+		.where(eq(contest.id, current.id))
+		.returning();
+
+	return updated;
+}

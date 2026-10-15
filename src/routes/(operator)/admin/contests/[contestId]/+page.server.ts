@@ -1,5 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { hasBeenScored } from '#lib/contest/phases.js';
+import { podiumBackground } from '#lib/contest/podium.js';
 import { isSignedIn } from '#lib/server/auth.js';
 import { readBoard } from '#lib/server/board.js';
 import {
@@ -8,6 +9,7 @@ import {
 	NothingToPublish,
 	openVoting,
 	publishResults,
+	setPresentationBackground,
 	VotingAlreadyOpen,
 	VotingNotOpen
 } from '#lib/server/contest.js';
@@ -35,7 +37,14 @@ export const load: PageServerLoad = async ({ params }) => {
 	const onBallot = await listVisibleEntries(contest.id);
 
 	return {
-		contest: { id: contest.id, title: contest.title, phase: contest.phase },
+		contest: {
+			id: contest.id,
+			title: contest.title,
+			phase: contest.phase,
+			// `null` means transparent rather than unset, so the Podium's form shows the
+			// operator what the reveal will actually do rather than what it defaults to.
+			background: contest.presentationBackground
+		},
 		entries,
 		onBallot: onBallot.length,
 		// The Board is the operator's view of the contest from the moment voting opens
@@ -150,5 +159,29 @@ export const actions = {
 			if (cause instanceof NothingToPublish) return fail(409, { nothingToPublish: true });
 			throw cause;
 		}
+	},
+
+	/**
+	 * Sets the background the Podium presents on. Allowed at any phase, including
+	 * Registration: an operator picks the colour before the party, not at the moment
+	 * they are standing in front of the room. Nothing here touches the phase or the
+	 * standings, so there is no result here to be irreversible about.
+	 */
+	background: async ({ params, request, cookies }) => {
+		// Actions run before the layout's guard, so a posted form must not be able to
+		// act on the operator's behalf.
+		if (!(await isSignedIn(cookies))) redirect(303, '/admin/login');
+
+		const contest = await getContest(params.contestId);
+		if (contest === undefined) error(404, 'That Contest does not exist.');
+
+		const submitted = await request.formData();
+		const background = podiumBackground(
+			formText(submitted.get('transparent')) === 'on',
+			formText(submitted.get('background'))
+		);
+
+		const updated = await setPresentationBackground(contest, background);
+		return { background: updated.presentationBackground };
 	}
 } satisfies Actions;

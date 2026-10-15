@@ -1,15 +1,24 @@
-// The Board's one read: vote counts, the standings ranked by them, and the advisory
-// duplicate signals.
+// The standings as everything else reads them: the Board's live view, the published
+// page, and the Podium.
 //
-// A plain server module rather than a remote one, because the live query that wraps
-// it has to live in a `.remote.ts` file and those may export nothing else. Keeping
-// the read here also means the page's server load can render the first value itself,
-// so a request with no JavaScript still gets a complete Board.
+// One module, one ranking, three shapes. That is the point: a read that reshaped the
+// standings on its own — picking different fields, or ranking a second time — is how the
+// number the operator watched arrive and the number they present quietly stop being the
+// same number. So the ranking and the projection live here, and each caller takes the
+// fields it is allowed to show.
+//
+// The shapes are kept apart as much as they are shared. `readBoard` carries the ballot
+// count and the advisory Duplicate signal; `readPublicStandings` carries neither, so
+// neither can reach the room by being one field away from something the audience does
+// see; and `readPodium` carries frames rather than rows, because the reveal is driven by
+// places rather than by a list.
 
 import { findDuplicateSignals, rankEntries, type DuplicateGroup } from '#lib/contest/standings.js';
+import { buildPodium, type PodiumFrame } from '#lib/contest/podium.js';
 import { countVotes, listVotingDevices } from './ballot.js';
-import { listVisibleEntries } from './entry.js';
+import { listVisibleEntries, type EntryWithNames } from './entry.js';
 
+/** One Entry's result: enough to name it, place it and count it. Nothing more. */
 export type BoardStanding = {
 	entryId: string;
 	costume: string;
@@ -28,46 +37,12 @@ export type Board = {
 };
 
 /**
- * The Board as it stands.
+ * The ranked Entries, projected once.
  *
- * Entries are ranked through the same pure rule the Podium will use, so the number
- * the operator watches during the party and the one they present afterwards cannot
- * disagree. A Hidden Entry is absent, because it has no votes — it was hidden before
- * voting opened — and because the audience could not choose it.
+ * Every read ends here, so the Board's order, the published order and the reveal's order
+ * cannot drift from one another.
  */
-export async function readBoard(contestId: string): Promise<Board> {
-	const entries = await listVisibleEntries(contestId);
-	const { ballots, votes } = await countVotes(contestId);
-
-	return {
-		ballots,
-		standings: rankEntries(entries, votes, (entry) => entry.id).map(({ entry, votes, place }) => ({
-			entryId: entry.id,
-			costume: entry.costume,
-			names: entry.names,
-			votes,
-			place
-		})),
-		duplicates: findDuplicateSignals(await listVotingDevices(contestId))
-	};
-}
-
-/**
- * The standings as the audience sees them.
- *
- * A separate read rather than a filtered view of `readBoard`, on purpose: the Board
- * carries the advisory Duplicate signal and the ballot count, and both are the
- * operator's alone. Choosing fields from one shape is how a duplicate warning ends
- * up in front of the room a few releases later, so the public shape is built here
- * from the same ranking rule and nothing else.
- *
- * The caller must check `showsStandings` first. This function does not, because a
- * Contest's phase is not its to trust — it is the caller's whole reason for calling.
- */
-export async function readPublicStandings(contestId: string): Promise<BoardStanding[]> {
-	const entries = await listVisibleEntries(contestId);
-	const { votes } = await countVotes(contestId);
-
+function project(entries: EntryWithNames[], votes: Map<string, number>): BoardStanding[] {
 	return rankEntries(entries, votes, (entry) => entry.id).map(({ entry, votes, place }) => ({
 		entryId: entry.id,
 		costume: entry.costume,
@@ -75,4 +50,58 @@ export async function readPublicStandings(contestId: string): Promise<BoardStand
 		votes,
 		place
 	}));
+}
+
+/**
+ * The Board as it stands: the standings, how many Ballots there are, and the advisory
+ * duplicate signals.
+ *
+ * A Hidden Entry is absent, because it has no votes — it was hidden before voting opened
+ * — and because the audience could not choose it.
+ */
+export async function readBoard(contestId: string): Promise<Board> {
+	// Counted once, not twice: the ballot total and the vote counts are read together, so
+	// a Ballot arriving mid-read cannot make the Board claim a total it has no counts for.
+	const [{ ballots, votes }, entries, devices] = await Promise.all([
+		countVotes(contestId),
+		listVisibleEntries(contestId),
+		listVotingDevices(contestId)
+	]);
+
+	return {
+		ballots,
+		standings: project(entries, votes),
+		duplicates: findDuplicateSignals(devices)
+	};
+}
+
+/**
+ * The standings as the audience sees them.
+ *
+ * No ballot count and no Duplicate signal, because both are the operator's alone, and
+ * choosing fields out of the Board's shape is how a duplicate warning ends up in front
+ * of the room a few releases later.
+ *
+ * The caller must check `showsStandings` first. This function does not, because a
+ * Contest's phase is not its to trust — it is the caller's whole reason for calling.
+ */
+export async function readPublicStandings(contestId: string): Promise<BoardStanding[]> {
+	const [{ votes }, entries] = await Promise.all([
+		countVotes(contestId),
+		listVisibleEntries(contestId)
+	]);
+
+	return project(entries, votes);
+}
+
+/**
+ * The reveal: one frame per place, worst place first, each carrying everything on the
+ * Podium so far.
+ *
+ * The same ranking, through the same projection as the Board's, so the reveal cannot
+ * show a different order from the one the operator watched arrive. The frame order is
+ * the pure rule's, not this function's.
+ */
+export async function readPodium(contestId: string): Promise<PodiumFrame[]> {
+	return buildPodium(await readPublicStandings(contestId));
 }

@@ -198,6 +198,85 @@ export async function fillBallots(
 	return pages;
 }
 
+/**
+ * A Contest that is finished: Entries in, Ballots cast, voting closed. The state the
+ * operator presents or publishes from, and the state every suite about that needs.
+ *
+ * Returns the operator's own context and page, because a suite that closes voting is
+ * usually about to do something else as the operator.
+ */
+export async function finishContest(
+	browser: Browser,
+	entrances: readonly Entrance[],
+	ballots: readonly (readonly string[])[]
+): Promise<{ context: BrowserContext; page: Page; contestId: string }> {
+	const context = await browser.newContext();
+	const page = await context.newPage();
+
+	await signIn(page);
+	const contestId = await createContest(page);
+	await fillEntries(browser, contestId, entrances);
+	await openVoting(page, contestId);
+	await fillBallots(browser, contestId, ballots);
+
+	await page.goto(`/admin/contests/${contestId}`);
+	await page.getByRole('button', { name: 'Close voting' }).click();
+	await page.getByRole('button', { name: 'Yes, close voting' }).click();
+	await expect(page.locator('[data-contest-phase]')).toContainText('Results');
+
+	return { context, page, contestId };
+}
+
+/**
+ * The Presentation, on its own screen.
+ *
+ * Pressing F is deliberately *not* in here: fullscreen is one of the things the suite
+ * about the reveal asserts, and a fixture that always went fullscreen would make every
+ * other assertion run against a screen the operator never has.
+ */
+export async function openPresentation(page: Page, contestId: string): Promise<void> {
+	await page.goto(`/admin/presentation/${contestId}`);
+	await expect(page.locator('[data-presentation]')).toBeVisible();
+}
+
+/**
+ * Sets the Podium's background from the admin page, the way the operator does.
+ *
+ * `transparent` is left alone when undefined, so a suite can change only the colour
+ * without having to say what the transparency was.
+ */
+export async function setPodiumBackground(
+	page: Page,
+	contestId: string,
+	background: { transparent?: boolean; colour?: string } = {}
+): Promise<void> {
+	await page.goto(`/admin/contests/${contestId}`);
+
+	if (background.transparent !== undefined) {
+		await page
+			.getByLabel('Transparent, to composite over video')
+			.setChecked(background.transparent);
+	}
+	if (background.colour !== undefined) {
+		await page.getByLabel('Background', { exact: true }).fill(background.colour);
+	}
+
+	await page.getByRole('button', { name: 'Save background' }).click();
+
+	// Read back off a fresh load rather than off the page that submitted: the form shows
+	// what was last typed, so only a reload shows what was actually stored. This is what
+	// catches a save that silently did nothing.
+	await page.reload();
+	const transparent = page.getByLabel('Transparent, to composite over video');
+	await expect(transparent).toBeChecked({ checked: background.transparent === true });
+
+	if (background.colour !== undefined) {
+		await expect(page.getByLabel('Background', { exact: true })).toHaveValue(
+			background.colour.toLowerCase()
+		);
+	}
+}
+
 /** The order the costume names appear on the ballot this device was served. */
 export async function ballotOrder(page: Page): Promise<string[]> {
 	return page

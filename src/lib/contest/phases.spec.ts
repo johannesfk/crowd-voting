@@ -4,6 +4,7 @@ import {
 	PHASES,
 	acceptsEntries,
 	acceptsVotes,
+	canPresent,
 	nextPhase,
 	isWaiting,
 	showsPhotos,
@@ -61,5 +62,12 @@ describe('the phase machine', () => {
 		// The ballot page must not subscribe to the waiting query, or every guest in the
 		// room holds a never-ending connection while the room is busiest.
 		expect(PHASES.filter(isWaiting)).toEqual(['results']);
+	});
+
+	it('presents the Podium only once the result has stopped moving', () => {
+		// Results is final but private, so the Podium runs there — before publication,
+		// which is the whole point of the gap between the two. Not during Voting: a
+		// reveal on a projector in front of the room cannot un-happen.
+		expect(PHASES.filter(canPresent)).toEqual(['results', 'published']);
 	});
 });
