@@ -277,3 +277,57 @@
 	Hiding an Entry takes it off the ballot and the standings without touching anybody's vote.
 	{#if !modifiable}The list is frozen while voting is open.{/if}
 </p>
+
+<!--
+	Deletion, offered in every phase: a Contest abandoned halfway through signing up is
+	as finished as one that was published, and the operator should not have to run a
+	cancelled party through the whole machine to get rid of it.
+
+	At the bottom, under everything about the Contest itself, because it is the one
+	thing on this page that is about neither the phase nor the result.
+-->
+<section class="flex flex-col gap-3 border-t pt-6">
+	<h2 class="text-lg font-semibold tracking-tight">Delete this Contest</h2>
+
+	{#if form?.confirmDelete}
+		<Card.Root data-confirm-delete class="border-destructive/40">
+			<Card.Header>
+				<Card.Title>Delete it for good?</Card.Title>
+				<Card.Description>
+					This removes the Contest, its entries, its ballots and every photograph taken for it.
+					There is no undo, and the photographs are the part that cannot be got back.
+				</Card.Description>
+			</Card.Header>
+			<Card.Content class="flex flex-col gap-3">
+				<form method="POST" action="?/delete" class="flex flex-col gap-3">
+					<div class="flex flex-col gap-1.5">
+						<Label for="delete-title">Type the title to confirm</Label>
+						<Input id="delete-title" name="title" value={form?.typed ?? ''} autocomplete="off" />
+					</div>
+
+					{#if form?.titleMismatch}
+						<p class="text-sm text-destructive" data-title-mismatch>
+							That is not this Contest's title, so nothing has been deleted.
+						</p>
+					{/if}
+
+					<div class="flex gap-3">
+						<Button type="submit" variant="destructive">Yes, delete it</Button>
+						<Button href="/admin/contests/{data.contest.id}" variant="outline"
+							>Keep this Contest</Button
+						>
+					</div>
+				</form>
+			</Card.Content>
+		</Card.Root>
+	{:else}
+		<form method="POST" action="?/delete">
+			<Button type="submit" variant="destructive">Delete this Contest</Button>
+		</form>
+	{/if}
+
+	<p class="text-sm text-muted-foreground">
+		Safe to run twice: if a deletion is interrupted, running it again finishes the job rather than
+		leaving photographs behind.
+	</p>
+</section>

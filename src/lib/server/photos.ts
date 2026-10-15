@@ -10,12 +10,25 @@
 import { env } from 'cloudflare:workers';
 
 /**
+ * Everything one Contest owns in object storage shares this prefix.
+ *
+ * The prefix is the whole of the delete story (ADR 0002): a deletion that lists
+ * storage rather than reading keys off the Entry rows does not have to trust the
+ * database to be in step with the bucket, so a rerun finds whatever the failed run
+ * left behind — which is what makes deleting twice safe rather than merely
+ * harmless.
+ */
+function photoPrefixFor(contestId: string): string {
+	return `contests/${contestId}/`;
+}
+
+/**
  * Objects are grouped by Contest so that deleting a Contest can enumerate
  * everything it owns by prefix (ADR 0002), and named by Entry so an Entry's photo
  * has exactly one key.
  */
 export function photoKeyFor(contestId: string, entryId: string): string {
-	return `contests/${contestId}/entries/${entryId}`;
+	return `${photoPrefixFor(contestId)}entries/${entryId}`;
 }
 
 /**
@@ -42,4 +55,25 @@ export async function readPhoto(key: string): Promise<StoredPhoto | null> {
 		body: object.body,
 		contentType: object.httpMetadata?.contentType ?? 'application/octet-stream'
 	};
+}
+
+/**
+ * Every photograph one Contest owns, removed.
+ *
+ * Enumerated by prefix rather than by the keys on the Entry rows, and paged because
+ * a big contest has more objects than one listing returns. Both of those choices
+ * are what make deletion retryable: a run that failed partway through left objects
+ * behind, the next run finds them under the same prefix without consulting the
+ * database at all, and deleting a key that has already gone is not an error in R2 —
+ * so a repeated run finishes the job rather than complaining about it.
+ */
+export async function deleteContestPhotos(contestId: string): Promise<void> {
+	const prefix = photoPrefixFor(contestId);
+
+	let cursor: string | undefined = undefined;
+	do {
+		const listed = await env.PHOTOS.list(cursor === undefined ? { prefix } : { prefix, cursor });
+		await Promise.all(listed.objects.map((object) => env.PHOTOS.delete(object.key)));
+		cursor = listed.truncated ? listed.cursor : undefined;
+	} while (cursor !== undefined);
 }

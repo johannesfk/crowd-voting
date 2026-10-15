@@ -53,9 +53,9 @@ Things that are deliberately not done, and why.
       threshold until something appears.
 - [ ] **`spec.md` story 57** ("close registration and open voting in one action") is
       satisfied by ticket 04's operator button, not called out in any ticket file.
-- [ ] **Tickets 08–09 are the ones left.** 07 (presentation) is done; 08 (delete) and
+- [ ] **Ticket 09 is the one left.** 08 (delete a Contest and its photos) is done;
       09 (operator corrects an entry, `needs-triage` with two undecided questions)
-      remain; there is still no ticket for the waiting page, the published standings, or
+      remains; there is still no ticket for the waiting page, the published standings, or
       the results phase, which ticket 05 leaves reachable but undecorated.
 
 ## Not a bug
@@ -63,3 +63,8 @@ Things that are deliberately not done, and why.
 - [ ] **A device token is a browser, not a person.** Registering on one phone and
       voting on another is two devices with nothing linking them (ADR 0004). This is
       documented rather than papered over; a guest on venue wifi is still one device.
+- [ ] **A deleted photo can live on in one guest's browser for a minute.** The audience
+      photo route sends `private, max-age=60` (ticket 04), so a photograph fetched
+      before a Contest was deleted can still render on the device that fetched it
+      until that entry ages out. Nothing a worker can do reaches a browser's cache, and
+      the trade was made for the ballot rather than by accident.

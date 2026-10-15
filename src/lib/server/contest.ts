@@ -6,6 +6,7 @@ import { desc, eq } from 'drizzle-orm';
 import { acceptsEntries, acceptsVotes, nextPhase, type ContestPhase } from '#lib/contest/phases.js';
 import { getDb } from './db/index.js';
 import { contest } from './db/schema.js';
+import { deleteContestPhotos } from './photos.js';
 
 export type Contest = typeof contest.$inferSelect;
 
@@ -125,6 +126,33 @@ export async function publishResults(current: Contest): Promise<Contest> {
 		.returning();
 
 	return updated;
+}
+
+/**
+ * Removes a Contest and everything it owns: entries, participants, ballots, votes
+ * and every photograph of its guests. Hard, in any phase, with no soft-delete
+ * staging area to come back from (ADR 0002).
+ *
+ * Photographs first, and that order is the whole of the retry story. Rows are what a
+ * second run needs in order to find the Contest and enumerate what it still owns; a
+ * run that took the rows first and then failed would leave photographs of real
+ * people in storage with nothing anywhere pointing at them and no link to resume
+ * from. In this order an interrupted deletion leaves the Contest standing, so
+ * running the deletion again finishes it: R2 does not mind deleting a key twice, and
+ * a row delete that matches nothing is not an error either.
+ *
+ * Refusing a phase here would buy nothing. Deletion is not a step on the machine —
+ * the Contest leaves by not existing — so a Contest abandoned halfway through
+ * Registration is as finished as one that was Published, and asking the operator to
+ * run it through voting first would be asking them to invite a room to a party they
+ * have cancelled.
+ */
+export async function deleteContest(current: Contest): Promise<void> {
+	await deleteContestPhotos(current.id);
+	// The schema cascades from here: entries take their participants and votes, the
+	// Contest takes its devices, entries and ballots, and the ballots take their
+	// votes. One statement, so a failure leaves the whole Contest or none of it.
+	await getDb().delete(contest).where(eq(contest.id, current.id));
 }
 
 /**

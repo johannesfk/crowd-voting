@@ -1,10 +1,12 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import { confirmsDeletion } from '#lib/contest/deletion.js';
 import { hasBeenScored } from '#lib/contest/phases.js';
 import { podiumBackground } from '#lib/contest/podium.js';
 import { isSignedIn } from '#lib/server/auth.js';
 import { readBoard } from '#lib/server/board.js';
 import {
 	closeVoting,
+	deleteContest,
 	getContest,
 	NothingToPublish,
 	openVoting,
@@ -183,5 +185,41 @@ export const actions = {
 
 		const updated = await setPresentationBackground(contest, background);
 		return { background: updated.presentationBackground };
+	},
+
+	/**
+	 * Destroys the Contest: its entries, its ballots, its standings and every
+	 * photograph taken for it, with nothing left to undo any of it.
+	 *
+	 * Confirmed by re-typing the Contest's title rather than by clicking a button, for
+	 * the same reason closing and publishing are: this one destroys photographs of
+	 * real people, and a stray click at the wrong moment on the busiest evening of the
+	 * year is the mistake being guarded against. A post with no title in it is the
+	 * operator asking what they are about to lose, not confirming it.
+	 *
+	 * Available at any phase, and followed by a redirect to the list rather than by a
+	 * page of their own, because there is nothing left to show one.
+	 */
+	delete: async ({ params, request, cookies }) => {
+		// Actions run before the layout's guard, so a posted form must not be able to
+		// act on the operator's behalf.
+		if (!(await isSignedIn(cookies))) redirect(303, '/admin/login');
+
+		const contest = await getContest(params.contestId);
+		if (contest === undefined) error(404, 'That Contest does not exist.');
+
+		const submitted = await request.formData();
+		const typed = formText(submitted.get('title'));
+
+		if (!confirmsDeletion(typed, contest.title)) {
+			// `submitted.has` rather than `typed === ''`: an empty box the operator
+			// submitted is a mistyped title they need told about, while no field at all
+			// is the button that only asks.
+			return fail(409, { confirmDelete: true, titleMismatch: submitted.has('title'), typed });
+		}
+
+		await deleteContest(contest);
+
+		redirect(303, '/admin');
 	}
 } satisfies Actions;
