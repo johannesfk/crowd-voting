@@ -1,13 +1,15 @@
-// Entries and their Participants: reading them, creating one, and hiding one.
-// Routes stay thin and call in here.
+// Entries and their Participants: reading them, creating one, hiding one, and
+// correcting one. Routes stay thin and call in here.
 //
-// Two rules live in this module rather than in a route, because both are about
-// the Entry and not about HTTP. Registration is only open while the Contest is in
-// Registration, and whether an Entry is hidden is only writable in that same
-// phase — once voting opens the entry list is frozen, so no Entry can vanish
-// from a ballot that has already been cast.
+// Three rules live in this module rather than in a route, because all three are
+// about the Entry and not about HTTP. Registration is only open while the Contest
+// is in Registration, and whether an Entry is hidden or may be corrected is only
+// writable in that same phase — once voting opens the entry list is frozen, so no
+// Entry can vanish from a ballot that has already been cast, and no costume can
+// change underneath one either.
 
 import { and, asc, eq, inArray } from 'drizzle-orm';
+import { isCorrectionWorthMaking, planNameCorrection } from '#lib/contest/correction.js';
 import { acceptsEntries } from '#lib/contest/phases.js';
 import { getDb } from './db/index.js';
 import { entry, participant } from './db/schema.js';
@@ -164,6 +166,12 @@ export async function registerEntry(input: {
 
 export class EntryListFrozen extends Error {}
 
+/** A Correction that would leave an Entry with no costume or nobody in it. */
+export class UncorrectableEntry extends Error {}
+
+/** No Entry of this Contest answers to that identifier, so there is nothing to Correct. */
+export class NoSuchEntry extends Error {}
+
 /**
  * Hides or restores an Entry. Refused once voting has opened: the ballot is live
  * and any Entry that vanished would leave a cast ballot pointing at nothing.
@@ -182,4 +190,69 @@ export async function setEntryHidden(
 		.returning();
 
 	return updated;
+}
+
+/**
+ * Makes a Correction: fixes what an Entry is dressed up as and who is in it.
+ *
+ * Refused once voting has opened, on the same edge as hiding: a costume that changed
+ * after a ballot had been cast would leave that ballot naming something the audience
+ * never saw, which is the freeze (story 55) rather than a second rule.
+ *
+ * Only the costume and the names are writable. The photo key and the registering device
+ * are left exactly as registration set them, because a Correction is a fix to what was
+ * typed — not a re-registration. Moving the Entry to another device would hand the
+ * original registrant's Own entry away, and swapping the photo would make the standing
+ * rules about photographs untrue for an Entry nobody re-registered.
+ *
+ * Written as one batch so an Entry is never left with a corrected costume and
+ * uncorrected names, and as the plan the Correction rule describes: renames in place,
+ * additions at the end, removals from the end.
+ */
+export async function correctEntry(
+	contest: Contest,
+	entryId: string,
+	input: { costume: string; names: string[] }
+): Promise<void> {
+	if (!acceptsEntries(contest.phase)) throw new EntryListFrozen();
+
+	// Asked here as well as in the route, because this is the function that would
+	// otherwise delete every Participant and leave an Entry with no costume. The route
+	// asks the same question so the operator gets a message rather than a stack trace.
+	if (!isCorrectionWorthMaking(input.costume, input.names)) {
+		throw new UncorrectableEntry();
+	}
+
+	const found = await findEntry(contest.id, entryId);
+	if (found === undefined) throw new NoSuchEntry();
+
+	const db = getDb();
+	const people = await db
+		.select()
+		.from(participant)
+		.where(eq(participant.entryId, found.id))
+		.orderBy(asc(participant.position));
+
+	const plan = planNameCorrection(
+		people.map((person) => person.name),
+		input.names
+	);
+	const onThisEntry = eq(participant.entryId, found.id);
+
+	await db.batch([
+		db.update(entry).set({ costume: input.costume }).where(eq(entry.id, found.id)),
+		// Highest position first, so a removal never renumbers the rows after it.
+		...plan.removed.map((position) =>
+			db.delete(participant).where(and(onThisEntry, eq(participant.position, position)))
+		),
+		...plan.renames.map(({ position, name }) =>
+			db
+				.update(participant)
+				.set({ name })
+				.where(and(onThisEntry, eq(participant.position, position)))
+		),
+		...plan.added.map(({ position, name }) =>
+			db.insert(participant).values({ entryId: found.id, name, position })
+		)
+	]);
 }

@@ -31,8 +31,24 @@ The audience votes on costumes, not on people.
 An Entry belongs to a Contest and is contributed by one or more Participants.
 Every Entry has exactly one photo.
 
-An Entry is never amended by the people who registered it. There is no editing,
-no correcting a name, no swapping the photo, and no withdrawing.
+An Entry is never amended by the people who registered it. There is no editing
+by the registrant, no correcting a name by them, no swapping the photo by them,
+and no withdrawing at all. The Operator may make a Correction.
+
+## Correction
+
+The Operator fixing what an Entry is dressed up as, or the name of one of its
+Participants, while the Contest is still in Registration. Registration is final
+for the people who registered an Entry; a Correction is the one other act that
+may change it, and it is the Operator's alone.
+
+A Correction reaches the costume and the names and nothing else. The photo and
+the device that registered the Entry are left exactly as they were, because a
+fix to what was typed is not a registration again.
+
+A Correction is as final as the registration it replaces: it cannot be undone,
+the Entry keeps no history, and the only way back is another Correction. Once
+Voting opens it cannot be made at all.
 
 ## Published
 
@@ -89,8 +105,8 @@ network address.
 ## Operator
 
 The single person who runs a Contest: opens and closes phases, hides Entries,
-and reads results. Authenticates with one shared password, held as a deployment
-secret. There is no Operator user table.
+makes Corrections, and reads results. Authenticates with one shared password,
+held as a deployment secret. There is no Operator user table.
 
 ## Hidden Entry
 

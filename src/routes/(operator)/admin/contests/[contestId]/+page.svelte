@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import * as Card from '#lib/components/ui/card/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -10,6 +11,9 @@
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	/** One Entry as the operator's list shows it, names and all. */
+	type Entry = PageData['entries'][number];
 
 	// The entry list freezes the moment voting opens, and that is the operator's
 	// one control over what reaches the ballot.
@@ -30,6 +34,61 @@
 	// re-seeding on every load would throw away whatever they had just changed.
 	let podiumTransparent = $state(untrack(() => data.contest.background === null));
 	let colour = $state(untrack(() => data.contest.background ?? DEFAULT_PODIUM_BACKGROUND));
+
+	/**
+	 * Whether a refusal came back from this Entry's own correction.
+	 *
+	 * Every field of the correction form is read back off the refusal rather than off the
+	 * Entry, so this is asked in one place rather than spelled out at every field: the box
+	 * that was wrong is still the box the operator was typing into.
+	 */
+	function refused(entryId: string): boolean {
+		if (form?.entryId !== entryId) return false;
+		return form.incompleteCorrection === true || form.correctionFrozen === true;
+	}
+
+	/**
+	 * Whether this Entry's correction form is open.
+	 *
+	 * The URL is what opens it, rather than component state, so the form survives a
+	 * reload and works with no JavaScript at all — an operator fixing a typo mid-party
+	 * should not have to wait for a bundle to be usable first.
+	 */
+	function isCorrecting(entryId: string): boolean {
+		return page.url.searchParams.get('correct') === entryId || refused(entryId);
+	}
+
+	/** Empty name boxes the operator has added to an Entry, by Entry. */
+	let addedNames = $state<Record<string, number>>({});
+
+	/** The costume in the box: what was typed and refused back, or what the Entry holds. */
+	function correctionCostume(entry: Entry): string {
+		return refused(entry.id) && form?.costume ? form.costume : entry.costume;
+	}
+
+	function addNameBox(entryId: string) {
+		addedNames[entryId] = (addedNames[entryId] ?? 0) + 1;
+	}
+
+	/**
+	 * One box per Participant the Entry has — what was typed and refused back if there
+	 * was a refusal — plus any empty boxes the operator has added.
+	 *
+	 * Each carries a key so the boxes keep their identity as more are added, rather than
+	 * every keystroke in the last box re-rendering the ones above it.
+	 */
+	function nameBoxes(entry: Entry) {
+		const typed = refused(entry.id) && form?.names ? form.names : entry.names;
+		const added = addedNames[entry.id] ?? 0;
+
+		return [
+			...typed.map((name, index) => ({ key: `existing-${index}`, name })),
+			...Array.from({ length: added }, (_, index) => ({
+				key: `added-${index}`,
+				name: ''
+			}))
+		];
+	}
 
 	// …but re-seeded when the operator moves to another Contest from the list, which is a
 	// client-side navigation that never re-runs this component. Without it, Contest A's
@@ -240,24 +299,127 @@
 						/>
 
 						<div class="flex flex-1 flex-col gap-1">
-							<span class="font-medium">{entry.costume}</span>
-							<span class="text-sm text-muted-foreground">{entry.names.join(', ')}</span>
-							<span class="text-sm text-muted-foreground">
-								Registered {entry.registeredAt.toLocaleString()}
-							</span>
+							{#if isCorrecting(entry.id)}
+								<!--
+									The Correction, in place of the names it is correcting. One box per
+									Participant so a name is never split by a comma the operator typed
+									inside it, and because a blank box is how somebody comes off the end
+									without the operator hunting for a remove button — which also means the
+									form works before the bundle has loaded.
 
-							{#if modifiable}
-								<form method="POST" action="?/hide" class="pt-1">
+									Opened only while the list is modifiable, like every other control here. It
+									also stays open on a refusal, which is the one case where the Contest has
+									stopped being modifiable: closing the form at that moment would leave the
+									operator with no message and nothing they had typed (story 55).
+								-->
+								<form
+									method="POST"
+									action="?/correct"
+									class="flex flex-col gap-3 pt-1"
+									data-correcting
+								>
 									<input type="hidden" name="entryId" value={entry.id} />
-									<input type="hidden" name="hidden" value={entry.hidden ? 'false' : 'true'} />
-									<Button
-										type="submit"
-										size="sm"
-										variant={entry.hidden ? 'outline' : 'destructive'}
-									>
-										{entry.hidden ? 'Put back on the ballot' : 'Hide from the ballot'}
-									</Button>
+
+									<div class="flex flex-col gap-1.5">
+										<Label for="costume-{entry.id}">What this Entry is dressed up as</Label>
+										<Input
+											id="costume-{entry.id}"
+											name="costume"
+											value={correctionCostume(entry)}
+										/>
+									</div>
+
+									<fieldset class="flex flex-col gap-1.5">
+										<legend class="text-sm font-medium">Everyone in this costume</legend>
+										{#each nameBoxes(entry) as person, index (person.key)}
+											<Label for="person-{index + 1}-{entry.id}">Person {index + 1}</Label>
+											<Input id="person-{index + 1}-{entry.id}" name="name" value={person.name} />
+										{/each}
+									</fieldset>
+
+									<!--
+										Both refusals in the correction's own words. An operator who had this form
+										open when voting opened was correcting, not hiding, and being told the
+										entry list is frozen would leave them hunting for the button they had
+										just pressed.
+									-->
+									{#if form?.incompleteCorrection === true && form.entryId === entry.id}
+										<p role="alert" class="text-sm text-destructive" data-correction-refused>
+											An Entry needs at least one person and a costume. The photo and whoever
+											registered this are left as they are.
+										</p>
+									{:else if form?.correctionFrozen === true && form.entryId === entry.id}
+										<p role="alert" class="text-sm text-destructive" data-correction-refused>
+											Voting has opened while this form was open, so the entry list is frozen and a
+											correction can no longer be made. Nothing has been changed.
+										</p>
+									{/if}
+
+									<div class="flex gap-3">
+										<Button type="submit" size="sm" data-save-correction>
+											Save the correction
+										</Button>
+										<Button
+											href="/admin/contests/{data.contest.id}"
+											variant="outline"
+											size="sm"
+											data-keep-entry
+										>
+											Keep it as it is
+										</Button>
+									</div>
 								</form>
+
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									class="self-start"
+									onclick={() => addNameBox(entry.id)}
+									data-add-person
+								>
+									Add a person
+								</Button>
+							{:else}
+								<span class="font-medium">{entry.costume}</span>
+								<span class="text-sm text-muted-foreground">{entry.names.join(', ')}</span>
+								<span class="text-sm text-muted-foreground">
+									Registered {entry.registeredAt.toLocaleString()}
+								</span>
+
+								{#if modifiable}
+									<div class="pt-1">
+										<Button
+											href="/admin/contests/{data.contest.id}?correct={entry.id}"
+											variant="outline"
+											size="sm"
+											data-open-correction
+										>
+											Correct this Entry
+										</Button>
+									</div>
+								{/if}
+							{/if}
+							{#if modifiable}
+								<!--
+										Hiding stays available while a correction is open. They are two decisions
+										rather than one, and an operator who has just noticed an Entry is also the
+										wrong one to hide should not have to abandon the typo they are halfway
+										through fixing in order to do it.
+									-->
+								<div class="pt-1">
+									<form method="POST" action="?/hide">
+										<input type="hidden" name="entryId" value={entry.id} />
+										<input type="hidden" name="hidden" value={entry.hidden ? 'false' : 'true'} />
+										<Button
+											type="submit"
+											size="sm"
+											variant={entry.hidden ? 'outline' : 'destructive'}
+										>
+											{entry.hidden ? 'Put back on the ballot' : 'Hide from the ballot'}
+										</Button>
+									</form>
+								</div>
 							{/if}
 						</div>
 
@@ -277,6 +439,14 @@
 	Hiding an Entry takes it off the ballot and the standings without touching anybody's vote.
 	{#if !modifiable}The list is frozen while voting is open.{/if}
 </p>
+
+{#if modifiable}
+	<p class="text-sm text-muted-foreground">
+		A Correction fixes a misspelled name or a mislabelled costume while Registration is open, and is
+		as final as the registration it replaces: the photo and whoever registered the Entry are left
+		exactly as they were, and there is nothing to undo it with.
+	</p>
+{/if}
 
 <!--
 	Deletion, offered in every phase: a Contest abandoned halfway through signing up is

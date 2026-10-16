@@ -1,4 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import { isCorrectionWorthMaking, parseCorrectedNames } from '#lib/contest/correction.js';
 import { confirmsDeletion } from '#lib/contest/deletion.js';
 import { hasBeenScored } from '#lib/contest/phases.js';
 import { podiumBackground } from '#lib/contest/podium.js';
@@ -16,10 +17,13 @@ import {
 	VotingNotOpen
 } from '#lib/server/contest.js';
 import {
+	correctEntry,
 	EntryListFrozen,
 	listEntries,
 	listVisibleEntries,
-	setEntryHidden
+	NoSuchEntry,
+	setEntryHidden,
+	UncorrectableEntry
 } from '#lib/server/entry.js';
 import { formText } from '#lib/server/form.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -78,6 +82,63 @@ export const actions = {
 		}
 
 		return { hidden: entryId, nowHidden: hidden };
+	},
+
+	/**
+	 * Fixes a typo in what an Entry is dressed up as, or in one of its names.
+	 *
+	 * The one write a guest's Entry gets that they did not type, and the same edge as
+	 * hiding: only while the Contest is in Registration, because a corrected costume
+	 * after a ballot had been cast would leave that ballot naming something the audience
+	 * never saw. The photo and the registering device are not in the payload and cannot
+	 * be reached from here, so a correction cannot become a re-registration.
+	 *
+	 * Refused rather than partially applied: an Entry always has a costume and at least
+	 * one Participant, and the whole thing lands in one batch or not at all.
+	 */
+	correct: async ({ params, request, cookies }) => {
+		// Actions run before the layout's guard, so a posted form must not be able to
+		// act on the operator's behalf.
+		if (!(await isSignedIn(cookies))) redirect(303, '/admin/login');
+
+		const contest = await getContest(params.contestId);
+		if (contest === undefined) error(404, 'That Contest does not exist.');
+
+		const submitted = await request.formData();
+		const entryId = formText(submitted.get('entryId'));
+		const costume = formText(submitted.get('costume'));
+		// One box per Participant, in position order, so a name is never split here.
+		const typed = submitted.getAll('name').map(formText);
+		const names = parseCorrectedNames(typed);
+
+		// Refused before anything is written, and with what was typed handed back, so a
+		// correction that is nearly right does not have to be typed a second time to
+		// find the mistake in it. Asked here as well as in the module: this is where the
+		// operator gets told, in the correction's own words and on the Entry they were
+		// looking at.
+		if (!isCorrectionWorthMaking(costume, names)) {
+			return fail(400, { entryId, costume, names: typed, incompleteCorrection: true });
+		}
+
+		try {
+			await correctEntry(contest, entryId, { costume, names });
+		} catch (cause) {
+			// Both refusals are the module's to name, and each is answered in the
+			// correction's own words rather than the entry list's: an operator who had
+			// this form open when the phase moved was correcting, not hiding.
+			if (cause instanceof EntryListFrozen) {
+				return fail(409, { entryId, costume, names: typed, correctionFrozen: true });
+			}
+			if (cause instanceof NoSuchEntry) error(404, 'That Entry does not exist.');
+			if (cause instanceof UncorrectableEntry) {
+				return fail(400, { entryId, costume, names: typed, incompleteCorrection: true });
+			}
+			throw cause;
+		}
+
+		// Post/redirect/get, so a refresh shows the corrected Entry rather than the form
+		// that corrected it.
+		redirect(303, `/admin/contests/${contest.id}`);
 	},
 
 	/**

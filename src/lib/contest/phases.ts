@@ -13,10 +13,10 @@ export const INITIAL_PHASE: ContestPhase = 'registration';
 
 /**
  * Whether a Contest in this phase still takes Entries — and whether the operator
- * may still hide one. Both answers are the same edge of the phase machine, and
- * both are asked from places that must not spell the phase themselves: the
- * registration action, the entry module's two guards, and the entry list's
- * disabled button.
+ * may still hide one or correct one. All are the same edge of the phase machine,
+ * and all are asked from places that must not spell the phase themselves: the
+ * registration action, the entry module's guards, and the entry list's disabled
+ * buttons.
  */
 export function acceptsEntries(phase: ContestPhase): boolean {
 	return phase === INITIAL_PHASE;
