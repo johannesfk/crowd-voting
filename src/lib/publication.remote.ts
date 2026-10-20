@@ -13,9 +13,7 @@
 import { query } from '$app/server';
 import { getContest } from '#lib/server/contest.js';
 import { showsStandings } from '#lib/contest/phases.js';
-
-/** How often the waiting page checks whether anything has changed. */
-const POLL_MS = 2000;
+import { POLL_MS } from '#lib/poll.js';
 
 export type WaitState = { published: boolean };
 

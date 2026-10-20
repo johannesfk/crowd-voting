@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `entry_contest_device` ON `entry` (`contest_id`,`device_id`);

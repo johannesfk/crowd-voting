@@ -11,20 +11,13 @@ import { and, eq } from 'drizzle-orm';
 import { MIN_VOTES, parsePicks, pickCountAllowed, tallyVotes } from '#lib/contest/ballot.js';
 import { acceptsVotes } from '#lib/contest/phases.js';
 import type { DuplicateDevice } from '#lib/contest/standings.js';
+import { isUniqueViolation } from './db/constraint.js';
 import { getDb } from './db/index.js';
 import { ballot, device, vote } from './db/schema.js';
 import { listVisibleEntries } from './entry.js';
-import type { Contest } from './contest.js';
+import { getContest, type Contest } from './contest.js';
 
 export type Ballot = typeof ballot.$inferSelect;
-
-/**
- * SQLite's own wording for a unique-index violation. Matched on the constraint
- * marker rather than on D1's message text, which is free to reword; the fallback
- * re-reads the Ballot anyway, so this only has to be right often enough to keep the
- * common case off the slow path.
- */
-const UNIQUE_CONSTRAINT = 'SQLITE_CONSTRAINT';
 
 /** Voting is not open, so there is no ballot to cast. */
 export class VotingClosed extends Error {}
@@ -69,20 +62,26 @@ export async function findBallotByDevice(
 export async function countVotes(
 	contestId: string
 ): Promise<{ ballots: number; votes: Map<string, number> }> {
-	const cast = await getDb()
-		.select({ id: ballot.id })
+	// One statement, not two. Reading the Ballots and then their Votes separately let a
+	// Ballot arriving between the two make the Board report a total it had no counts
+	// for — one more Ballot than there were Votes anywhere. Joined here, every row is
+	// the same moment.
+	const rows = await getDb()
+		.select({ ballotId: ballot.id, entryId: vote.entryId })
 		.from(ballot)
+		.leftJoin(vote, eq(vote.ballotId, ballot.id))
 		.where(eq(ballot.contestId, contestId));
 
-	if (cast.length === 0) return { ballots: 0, votes: new Map() };
+	const ballots = new Set<string>();
+	const picks: { entryId: string }[] = [];
+	for (const row of rows) {
+		ballots.add(row.ballotId);
+		// A Ballot always holds at least one Vote, so the null side only shows up if a
+		// write died halfway — counted as a Ballot with no picks rather than as a pick.
+		if (row.entryId !== null) picks.push({ entryId: row.entryId });
+	}
 
-	const counted = await getDb()
-		.select({ entryId: vote.entryId })
-		.from(vote)
-		.innerJoin(ballot, eq(ballot.id, vote.ballotId))
-		.where(eq(ballot.contestId, contestId));
-
-	return { ballots: cast.length, votes: tallyVotes(counted) };
+	return { ballots: ballots.size, votes: tallyVotes(picks) };
 }
 
 /**
@@ -151,7 +150,12 @@ export async function castBallot(input: {
 }): Promise<{ ballot: Ballot; picks: string[] }> {
 	const { contest } = input;
 
-	if (!acceptsVotes(contest.phase)) throw new VotingClosed();
+	// The phase is read here rather than trusted from the caller's Contest, which was
+	// fetched when the request began: a ballot already on its way when the operator
+	// closed voting must not land on the result. The window is narrow either way, but
+	// it is the difference between a stale snapshot and a fresh one.
+	const live = await getContest(contest.id);
+	if (live === undefined || !acceptsVotes(live.phase)) throw new VotingClosed();
 	if ((await findBallotByDevice(contest.id, input.deviceId)) !== undefined) {
 		throw new AlreadyVoted();
 	}
@@ -203,7 +207,7 @@ export async function castBallot(input: {
 		// into AlreadyVoted rather than a server error, because a guest who
 		// double-clicks Send has voted — they have not made a mistake.
 		const lostTheRace =
-			(cause instanceof Error && cause.message.includes(UNIQUE_CONSTRAINT)) ||
+			isUniqueViolation(cause) ||
 			(await findBallotByDevice(contest.id, input.deviceId)) !== undefined;
 		if (lostTheRace) throw new AlreadyVoted();
 		throw cause;

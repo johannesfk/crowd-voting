@@ -14,8 +14,20 @@ import { device } from './db/schema.js';
 
 const DEVICE_COOKIE = 'cv_device';
 
-/** Audience routes live under /c, so the cookie never travels to the admin area. */
-const COOKIE_PATH = '/c';
+/**
+ * The cookie is scoped to the Contest's own subtree, not to `/c`.
+ *
+ * A browser holds one device row per Contest, and one cookie cannot name two of them:
+ * scoped to `/c`, opening a second Contest overwrote the first Contest's token, so
+ * coming back to the first minted a new device — the guest's own Entry stopped being
+ * theirs, their cast Ballot was forgotten, and their ballot was reshuffled. The path
+ * is per Contest because the token is.
+ *
+ * Still under `/c`, so the cookie never travels to the admin area.
+ */
+function cookiePathFor(contestId: string): string {
+	return `/c/${contestId}`;
+}
 
 /** Long enough to outlive any party, and short enough to be forgotten after. */
 const LIFETIME_SECONDS = 60 * 60 * 24 * 180;
@@ -84,7 +96,7 @@ export async function resolveDevice(
 	// httpOnly because the token is a credential: nothing on an audience page ever
 	// needs to read it back.
 	cookies.set(DEVICE_COOKIE, token, {
-		path: COOKIE_PATH,
+		path: cookiePathFor(contestId),
 		httpOnly: true,
 		sameSite: 'lax',
 		maxAge: LIFETIME_SECONDS

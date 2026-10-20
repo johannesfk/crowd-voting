@@ -80,29 +80,37 @@ export const device = sqliteTable(
  * is kept here, because photographs are the largest thing the platform stores and
  * do not belong in the database.
  */
-export const entry = sqliteTable('entry', {
-	id: text('id')
-		.primaryKey()
-		.$defaultFn(() => crypto.randomUUID()),
-	contestId: text('contest_id')
-		.notNull()
-		.references(() => contest.id, { onDelete: 'cascade' }),
-	// What the Entry is dressed up as, in the audience member's own words.
-	costume: text('costume').notNull(),
-	photoKey: text('photo_key').notNull(),
-	// The browser that registered it, which is also what makes it that browser's
-	// own Entry on the ballot.
-	deviceId: text('device_id')
-		.notNull()
-		.references(() => device.id),
-	// A Hidden Entry is withheld by the operator before voting opens. It is
-	// writable only while the Contest is in Registration, which is what freezes
-	// the entry list once voting starts.
-	hidden: integer('hidden', { mode: 'boolean' }).notNull().default(false),
-	registeredAt: integer('registered_at', { mode: 'timestamp_ms' })
-		.notNull()
-		.$defaultFn(() => new Date())
-});
+export const entry = sqliteTable(
+	'entry',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		contestId: text('contest_id')
+			.notNull()
+			.references(() => contest.id, { onDelete: 'cascade' }),
+		// What the Entry is dressed up as, in the audience member's own words.
+		costume: text('costume').notNull(),
+		photoKey: text('photo_key').notNull(),
+		// The browser that registered it, which is also what makes it that browser's
+		// own Entry on the ballot.
+		deviceId: text('device_id')
+			.notNull()
+			.references(() => device.id),
+		// A Hidden Entry is withheld by the operator before voting opens. It is
+		// writable only while the Contest is in Registration, which is what freezes
+		// the entry list once voting starts.
+		hidden: integer('hidden', { mode: 'boolean' }).notNull().default(false),
+		registeredAt: integer('registered_at', { mode: 'timestamp_ms' })
+			.notNull()
+			.$defaultFn(() => new Date())
+	},
+	// One Entry per device per Contest, ever — the same shape as the Ballot's, and
+	// enforced by the database for the same reason: registration is final, so a second
+	// Entry from one device is a bug rather than a replacement. Two posts in the same
+	// instant both pass the route's check and the second loses here.
+	(table) => [uniqueIndex('entry_contest_device').on(table.contestId, table.deviceId)]
+);
 
 /** One named person in an Entry, in the order they were typed. */
 export const participant = sqliteTable(

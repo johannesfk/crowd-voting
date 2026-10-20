@@ -300,15 +300,23 @@ function wrap(context: CanvasRenderingContext2D, value: string, maxWidth: number
 	return lines;
 }
 
-/** The photographs for one frame, keyed by Entry, once they have loaded. */
-const loaded = new Map<string, HTMLImageElement | null>();
+/**
+ * The photographs for one frame, keyed by URL, once they have loaded.
+ *
+ * Never evicted on purpose. This runs on the operator's Presentation screen, which
+ * shows one Contest and is closed when the reveal is over, so what accumulates is that
+ * Contest's own photos — a few hundred at the very most — for as long as the tab lives.
+ * Evicting would mean re-loading a photograph mid-reveal, which is the one moment the
+ * room is looking.
+ */
+const photoCache = new Map<string, HTMLImageElement | null>();
 
 async function loadPhotos(frame: PodiumImage) {
 	await Promise.all(
 		frame.entries.map(async (entry) => {
 			const url = frame.photos.get(entry.entryId);
-			if (url === undefined || loaded.has(url)) return;
-			loaded.set(url, await loadImage(url));
+			if (url === undefined || photoCache.has(url)) return;
+			photoCache.set(url, await loadImage(url));
 		})
 	);
 }
@@ -319,7 +327,7 @@ async function loadImage(url: string): Promise<HTMLImageElement | null> {
 	// cross-origin load would taint the canvas and cost us the export entirely.
 	image.src = url;
 
-	const loaded = new Promise<HTMLImageElement>((resolve, reject) => {
+	const imageLoaded = new Promise<HTMLImageElement>((resolve, reject) => {
 		image.onload = () => resolve(image);
 		image.onerror = () => reject(new Error('That photograph could not be loaded.'));
 	});
@@ -327,7 +335,7 @@ async function loadImage(url: string): Promise<HTMLImageElement | null> {
 	const gaveUp = new Promise<null>((done) => setTimeout(() => done(null), PHOTO_TIMEOUT_MS));
 
 	try {
-		return await Promise.race([loaded, gaveUp]);
+		return await Promise.race([imageLoaded, gaveUp]);
 	} catch {
 		return null;
 	}
@@ -341,7 +349,7 @@ function drawPhoto(
 	w: number,
 	h: number
 ) {
-	const image = loaded.get(url);
+	const image = photoCache.get(url);
 	if (image === undefined || image === null) return;
 
 	// Cover, not contain: a card with a letterboxed photo in it looks like a mistake,

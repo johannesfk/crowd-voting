@@ -3,12 +3,10 @@ import { isCorrectionWorthMaking, parseCorrectedNames } from '#lib/contest/corre
 import { confirmsDeletion } from '#lib/contest/deletion.js';
 import { hasBeenScored } from '#lib/contest/phases.js';
 import { podiumBackground } from '#lib/contest/podium.js';
-import { isSignedIn } from '#lib/server/auth.js';
 import { readBoard } from '#lib/server/board.js';
 import {
 	closeVoting,
 	deleteContest,
-	getContest,
 	NothingToPublish,
 	openVoting,
 	publishResults,
@@ -26,6 +24,7 @@ import {
 	UncorrectableEntry
 } from '#lib/server/entry.js';
 import { formText } from '#lib/server/form.js';
+import { requireOperatorContest } from '#lib/server/operator.js';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -33,9 +32,8 @@ import type { Actions, PageServerLoad } from './$types';
  * the Board, live. The two share a page because they are the same list seen at two
  * moments, and an operator running a party does not want to move between them.
  */
-export const load: PageServerLoad = async ({ params }) => {
-	const contest = await getContest(params.contestId);
-	if (contest === undefined) error(404, 'That Contest does not exist.');
+export const load: PageServerLoad = async ({ params, cookies }) => {
+	const contest = await requireOperatorContest(params.contestId, cookies);
 
 	const entries = await listEntries(contest.id);
 	// What the audience will be able to choose, read through the same query the
@@ -63,10 +61,7 @@ export const actions = {
 	hide: async ({ params, request, cookies }) => {
 		// Actions run before the layout's guard, so a posted form must not be able to
 		// act on the operator's behalf.
-		if (!(await isSignedIn(cookies))) redirect(303, '/admin/login');
-
-		const contest = await getContest(params.contestId);
-		if (contest === undefined) error(404, 'That Contest does not exist.');
+		const contest = await requireOperatorContest(params.contestId, cookies);
 
 		const submitted = await request.formData();
 		const entryId = formText(submitted.get('entryId'));
@@ -99,10 +94,7 @@ export const actions = {
 	correct: async ({ params, request, cookies }) => {
 		// Actions run before the layout's guard, so a posted form must not be able to
 		// act on the operator's behalf.
-		if (!(await isSignedIn(cookies))) redirect(303, '/admin/login');
-
-		const contest = await getContest(params.contestId);
-		if (contest === undefined) error(404, 'That Contest does not exist.');
+		const contest = await requireOperatorContest(params.contestId, cookies);
 
 		const submitted = await request.formData();
 		const entryId = formText(submitted.get('entryId'));
@@ -149,10 +141,7 @@ export const actions = {
 	openVoting: async ({ params, cookies }) => {
 		// Actions run before the layout's guard, so a posted form must not be able to
 		// act on the operator's behalf.
-		if (!(await isSignedIn(cookies))) redirect(303, '/admin/login');
-
-		const contest = await getContest(params.contestId);
-		if (contest === undefined) error(404, 'That Contest does not exist.');
+		const contest = await requireOperatorContest(params.contestId, cookies);
 
 		// Warned rather than stopped: running a contest with nothing on it is a
 		// mistake worth one more click, not one worth an error page.
@@ -175,10 +164,7 @@ export const actions = {
 	closeVoting: async ({ params, request, cookies }) => {
 		// Actions run before the layout's guard, so a posted form must not be able to
 		// act on the operator's behalf.
-		if (!(await isSignedIn(cookies))) redirect(303, '/admin/login');
-
-		const contest = await getContest(params.contestId);
-		if (contest === undefined) error(404, 'That Contest does not exist.');
+		const contest = await requireOperatorContest(params.contestId, cookies);
 
 		// Closing is irreversible, so it is confirmed by a deliberate second step
 		// rather than by a button that can be hit by accident during a busy evening.
@@ -205,10 +191,7 @@ export const actions = {
 	publish: async ({ params, request, cookies }) => {
 		// Actions run before the layout's guard, so a posted form must not be able to
 		// act on the operator's behalf.
-		if (!(await isSignedIn(cookies))) redirect(303, '/admin/login');
-
-		const contest = await getContest(params.contestId);
-		if (contest === undefined) error(404, 'That Contest does not exist.');
+		const contest = await requireOperatorContest(params.contestId, cookies);
 
 		const submitted = await request.formData();
 		if (formText(submitted.get('confirm')) !== 'publish') {
@@ -233,10 +216,7 @@ export const actions = {
 	background: async ({ params, request, cookies }) => {
 		// Actions run before the layout's guard, so a posted form must not be able to
 		// act on the operator's behalf.
-		if (!(await isSignedIn(cookies))) redirect(303, '/admin/login');
-
-		const contest = await getContest(params.contestId);
-		if (contest === undefined) error(404, 'That Contest does not exist.');
+		const contest = await requireOperatorContest(params.contestId, cookies);
 
 		const submitted = await request.formData();
 		const background = podiumBackground(
@@ -264,10 +244,7 @@ export const actions = {
 	delete: async ({ params, request, cookies }) => {
 		// Actions run before the layout's guard, so a posted form must not be able to
 		// act on the operator's behalf.
-		if (!(await isSignedIn(cookies))) redirect(303, '/admin/login');
-
-		const contest = await getContest(params.contestId);
-		if (contest === undefined) error(404, 'That Contest does not exist.');
+		const contest = await requireOperatorContest(params.contestId, cookies);
 
 		const submitted = await request.formData();
 		const typed = formText(submitted.get('title'));

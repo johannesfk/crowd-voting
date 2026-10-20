@@ -120,7 +120,7 @@ Because it is one system, everything replaces a manual step: the ballot builds i
 
 **Ballot semantics.** One Ballot per device, holding one to three unranked Votes, all weighting equally. Rank is the count of Ballots containing an Entry — no weighting by group size, no 3/2/1 scoring. Casting is final and never amended.
 
-**Ballot order.** The order is random, frozen per device for the life of the Contest, derived server-side from the device token and a seed persisted on `device`. It is not generated in the browser. A Hidden Entry is excluded from the ballot; an Own entry is pinned outside the shuffled grid rather than occupying a slot, so position bias never lands on an unselectable card.
+**Ballot order.** The order is random, frozen per device for the life of the Contest, derived server-side from a seed persisted on `device` at the device's first visit. It is not generated in the browser. A Hidden Entry is excluded from the ballot; an Own entry is pinned outside the shuffled grid rather than occupying a slot, so position bias never lands on an unselectable card.
 
 **Vote eligibility.** Enforced by the device token, which identifies a browser and not a person — registering on one phone and voting on another yields two unlinked tokens, so self-voting and double-voting are blocked within a device and defeated across devices. This limit is deliberate and documented rather than papered over. A derived network/fingerprint hash is stored as an advisory Duplicate signal shown on the Board; it never refuses a request, because venue guests share one access point and a hard limit would reject most of the room.
 

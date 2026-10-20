@@ -16,6 +16,7 @@ import { readPublicStandings } from '#lib/server/board.js';
 import { getContest } from '#lib/server/contest.js';
 import { resolveDevice } from '#lib/server/device.js';
 import {
+	AlreadyEntered,
 	findEntryByDevice,
 	listVisibleEntries,
 	registerEntry,
@@ -138,6 +139,10 @@ export const actions = {
 			// Registration closing between the check above and the write is not a
 			// failure the guest can fix; the link will show them the current phase.
 			if (cause instanceof RegistrationClosed) redirect(303, link);
+			// A second registration that won the check above but lost the race to the
+			// unique index is not a second Entry either: the guest is sent to the
+			// confirmation they already have.
+			if (cause instanceof AlreadyEntered) redirect(303, link);
 			throw cause;
 		}
 

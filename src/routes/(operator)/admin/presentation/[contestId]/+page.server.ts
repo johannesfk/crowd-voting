@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { canPresent } from '#lib/contest/phases.js';
 import { readPodium } from '#lib/server/board.js';
-import { getContest } from '#lib/server/contest.js';
+import { requireOperatorContest } from '#lib/server/operator.js';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -16,9 +16,8 @@ import type { PageServerLoad } from './$types';
  * Contest still in Voting has a result that is still moving, and a reveal that shows a
  * result which then changes is the one thing worse than no reveal at all.
  */
-export const load: PageServerLoad = async ({ params }) => {
-	const contest = await getContest(params.contestId);
-	if (contest === undefined) error(404, 'That Contest does not exist.');
+export const load: PageServerLoad = async ({ params, cookies }) => {
+	const contest = await requireOperatorContest(params.contestId, cookies);
 	if (!canPresent(contest.phase)) {
 		error(409, 'That Contest has no final result to present yet.');
 	}

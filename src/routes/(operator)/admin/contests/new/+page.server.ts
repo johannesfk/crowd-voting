@@ -1,7 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { isSignedIn } from '#lib/server/auth.js';
 import { createContest } from '#lib/server/contest.js';
 import { formNotice, formText } from '#lib/server/form.js';
+import { requireOperator } from '#lib/server/operator.js';
 import type { Actions } from './$types';
 
 export const actions = {
@@ -9,7 +9,7 @@ export const actions = {
 		// Actions run before the layout's guard, so every action that touches the
 		// operator's data checks the session itself: a posted form must not be
 		// able to act on the operator's behalf.
-		if (!(await isSignedIn(cookies))) redirect(303, '/admin/login');
+		await requireOperator(cookies);
 
 		const submitted = await request.formData();
 		const title = formText(submitted.get('title'));

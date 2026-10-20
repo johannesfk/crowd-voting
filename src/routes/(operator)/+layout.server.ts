@@ -1,5 +1,4 @@
-import { redirect } from '@sveltejs/kit';
-import { isSignedIn } from '#lib/server/auth.js';
+import { requireOperator } from '#lib/server/operator.js';
 import type { LayoutServerLoad } from './$types';
 
 // Every route in this group is operator-only. A visitor without a signed session
@@ -10,5 +9,5 @@ export const load: LayoutServerLoad = async ({ cookies, setHeaders }) => {
 	// count — so no cache anywhere on the way may hold one of them.
 	setHeaders({ 'cache-control': 'no-store' });
 
-	if (!(await isSignedIn(cookies))) redirect(303, '/admin/login');
+	await requireOperator(cookies);
 };

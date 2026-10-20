@@ -225,6 +225,87 @@ test.describe('an audience member', () => {
 		await guest.close();
 		await operator.close();
 	});
+
+	test('cannot enter twice when two registrations arrive at the same instant', async ({
+		browser
+	}) => {
+		const operator = await browser.newContext();
+		const operatorPage = await operator.newPage();
+		await signIn(operatorPage);
+		const contestId = await createContest(operatorPage, { registration: SIGN_UP_NOTICE });
+
+		const guest = await browser.newContext();
+		const page = await guest.newPage();
+		// Opening the link is what gives this browser a device. Both posts below then
+		// come from that one device, at once: the case a double-tap on "Enter the
+		// contest" produces, and the one the route's own check cannot see.
+		//
+		// What this pins is the outcome — one Entry, both answers "you have entered" —
+		// whichever way the two requests interleave. A local D1 tends to run them one
+		// after the other, so the unique index that catches them when they do interleave
+		// (and the `AlreadyEntered` the loser is named with) is not something this test
+		// alone proves.
+		await page.goto(`/c/${contestId}`);
+
+		const answered = await Promise.all([
+			replayRegistration(page, contestId, 'Ada Lovelace', 'Time travellers'),
+			replayRegistration(page, contestId, 'Ada Lovelace', 'Time travellers')
+		]);
+
+		// Both are answered as "you have entered", whichever of them won: the loser is
+		// not told it made a mistake, because it did not.
+		for (const one of answered) {
+			expect(one).toMatchObject({
+				type: 'redirect',
+				status: 303,
+				location: `/c/${contestId}`
+			});
+		}
+
+		await operatorPage.goto(`/admin/contests/${contestId}`);
+		await expect(operatorPage.locator('[data-entry-id]')).toHaveCount(1);
+		await expect(operatorPage.getByText('Time travellers')).toHaveCount(1);
+
+		await guest.close();
+		await operator.close();
+	});
+
+	test('goes back to waiting when the photo picker is dismissed', async ({ browser }) => {
+		const operator = await browser.newContext();
+		const operatorPage = await operator.newPage();
+		await signIn(operatorPage);
+		const contestId = await createContest(operatorPage, { registration: SIGN_UP_NOTICE });
+
+		const guest = await browser.newContext();
+		const page = await guest.newPage();
+		await page.goto(`/c/${contestId}`);
+
+		await page.locator(LIBRARY_PHOTO).setInputFiles(photo());
+		await expect(page.locator('[data-photo-preview]')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Enter the contest' })).toBeEnabled();
+
+		// The picker hands nothing back and says so, which is what a dismissed picker
+		// does: `change` never fires, and the file list is left empty. It is fired here
+		// rather than clicking a real dialog, which a headless browser does not have.
+		await page.locator(LIBRARY_PHOTO).evaluate((input: HTMLInputElement) => {
+			input.value = '';
+			input.dispatchEvent(new Event('cancel'));
+		});
+
+		// Nothing is prepared any more, and the form says so rather than offering to
+		// send a photo that is not there.
+		await expect(page.locator('[data-photo-preview]')).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'Enter the contest' })).toBeDisabled();
+
+		// Choosing again after a dismissal still works, which is the difference between
+		// resetting the form and wedging it.
+		await page.locator(LIBRARY_PHOTO).setInputFiles(photo());
+		await expect(page.locator('[data-photo-preview]')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Enter the contest' })).toBeEnabled();
+
+		await guest.close();
+		await operator.close();
+	});
 });
 
 test.describe('the operator', () => {
@@ -254,6 +335,33 @@ test.describe('the operator', () => {
 		await hidden.getByRole('button', { name: 'Put back on the ballot' }).click();
 		await expect(operatorPage.getByText('Hidden', { exact: true })).toHaveCount(0);
 		await expect(operatorPage.getByText('2 of 2 will be on the ballot.')).toBeVisible();
+
+		await operator.close();
+	});
+
+	test('sees which device registered each Entry', async ({ browser }) => {
+		const operator = await browser.newContext();
+		const operatorPage = await operator.newPage();
+		await signIn(operatorPage);
+		const contestId = await createContest(operatorPage, { registration: SIGN_UP_NOTICE });
+
+		await fillEntries(browser, contestId, [
+			{ names: 'Ada Lovelace', costume: 'Time travellers' },
+			{ names: 'Alan Turing', costume: 'Enigma' }
+		]);
+
+		await operatorPage.goto(`/admin/contests/${contestId}`);
+		const devices = operatorPage.locator('[data-entry-device]');
+		await expect(devices).toHaveCount(2);
+		await expect(devices.first()).toHaveText(/Device [0-9a-f]{8}/);
+
+		// Two guests on two phones are two devices, so the operator can tell that these
+		// Entries did not come from one browser.
+		const ids = await devices.evaluateAll((tags) =>
+			tags.map((tag) => tag.getAttribute('data-entry-device') ?? '')
+		);
+		expect(new Set(ids).size).toBe(2);
+		expect(ids.every((id) => id.length > 0)).toBe(true);
 
 		await operator.close();
 	});

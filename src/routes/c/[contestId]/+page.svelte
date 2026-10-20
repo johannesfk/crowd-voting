@@ -6,6 +6,7 @@
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
 	import { fieldClass } from '#lib/components/field.js';
+	import StandingRow from '#lib/components/standing-row.svelte';
 	import { MAX_VOTES } from '#lib/contest/ballot.js';
 	import {
 		acceptsEntries,
@@ -106,6 +107,22 @@
 		ready = false;
 	}
 
+	/**
+	 * The picker was dismissed without a choice. Nothing is left prepared, so the
+	 * submit button goes back to waiting rather than offering to send a photo that is
+	 * not there — which a guest who changed their mind would discover only by being
+	 * told the entry needs a photo.
+	 *
+	 * Guarded on the file list being empty, like `choose`, because picking the same
+	 * file a second time also fires `cancel`: that is a choice, not a dismissal, and it
+	 * arrives through `change` as well.
+	 */
+	function dismissed(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if ((input.files?.length ?? 0) > 0) return;
+		retake();
+	}
+
 	function toggle(id: string, checked: boolean) {
 		picks = checked ? [...picks, id] : picks.filter((pick) => pick !== id);
 	}
@@ -154,18 +171,12 @@
 							data-costume={standing.costume}
 							class="flex flex-row items-center gap-3"
 						>
-							<span data-place-label class="w-8 shrink-0 text-lg font-semibold tabular-nums">
-								{standing.place}
-							</span>
-							<img
-								src="/c/{data.contest.id}/entries/{standing.entryId}/photo"
-								alt="Photo of {standing.names.join(', ')}"
-								class="size-12 shrink-0 rounded-md border object-cover"
+							<StandingRow
+								place={standing.place}
+								costume={standing.costume}
+								names={standing.names}
+								photoSrc="/c/{data.contest.id}/entries/{standing.entryId}/photo"
 							/>
-							<span class="flex flex-col gap-0.5">
-								<span class="font-medium">{standing.costume}</span>
-								<span class="text-xs text-muted-foreground">{standing.names.join(', ')}</span>
-							</span>
 						</li>
 					{/each}
 				</ol>
@@ -390,6 +401,7 @@ Alan Turing"
 							capture="environment"
 							class="hidden"
 							onchange={choose}
+							oncancel={dismissed}
 						/>
 						<input
 							bind:this={library}
@@ -398,6 +410,7 @@ Alan Turing"
 							accept="image/*"
 							class="hidden"
 							onchange={choose}
+							oncancel={dismissed}
 						/>
 
 						{#if previewUrl !== null}

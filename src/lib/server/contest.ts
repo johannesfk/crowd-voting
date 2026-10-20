@@ -2,7 +2,7 @@
 // and remote functions call these and stay thin; the rules a Contest obeys — the
 // phases in `#lib/contest/phases.js` — live in the domain modules.
 
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { acceptsEntries, acceptsVotes, nextPhase, type ContestPhase } from '#lib/contest/phases.js';
 import { getDb } from './db/index.js';
 import { contest } from './db/schema.js';
@@ -52,6 +52,31 @@ export class VotingNotOpen extends Error {}
 export class NothingToPublish extends Error {}
 
 /**
+ * Writes one phase edge, and only if the Contest is still where the caller read it.
+ *
+ * The phase being left is part of the `where`, so two requests that both read a Contest
+ * in Results cannot both publish it: the second matches no row and is refused rather
+ * than re-stamping `publishedAt` on a Contest that is already public. `nextPhase` still
+ * decides which phase comes next — this only makes writing it safe.
+ *
+ * Returns `undefined` when the row had already moved on, which every caller turns into
+ * the same refusal its own precondition would have given.
+ */
+async function advance(
+	current: Contest,
+	next: ContestPhase,
+	extra: { publishedAt?: Date } = {}
+): Promise<Contest | undefined> {
+	const [updated] = await getDb()
+		.update(contest)
+		.set({ phase: next, ...extra })
+		.where(and(eq(contest.id, current.id), eq(contest.phase, current.phase)))
+		.returning();
+
+	return updated;
+}
+
+/**
  * Closes Registration and opens Voting in one deliberate act, and returns the
  * Contest where it now stands.
  *
@@ -68,12 +93,10 @@ export async function openVoting(current: Contest): Promise<Contest> {
 	// `acceptsEntries` is true only in Registration and the machine's next edge out
 	// of Registration is Voting, so this is never null here.
 	const next = nextPhase(current.phase) as ContestPhase;
-
-	const [updated] = await getDb()
-		.update(contest)
-		.set({ phase: next })
-		.where(eq(contest.id, current.id))
-		.returning();
+	const updated = await advance(current, next);
+	// Refused when the Contest left Registration between the check above and the write,
+	// which from the operator's side is the same fact: voting is already open.
+	if (updated === undefined) throw new VotingAlreadyOpen();
 
 	return updated;
 }
@@ -93,11 +116,8 @@ export async function openVoting(current: Contest): Promise<Contest> {
 export async function closeVoting(current: Contest): Promise<Contest> {
 	if (!acceptsVotes(current.phase)) throw new VotingNotOpen();
 
-	const [updated] = await getDb()
-		.update(contest)
-		.set({ phase: nextPhase(current.phase) as ContestPhase })
-		.where(eq(contest.id, current.id))
-		.returning();
+	const updated = await advance(current, nextPhase(current.phase) as ContestPhase);
+	if (updated === undefined) throw new VotingNotOpen();
 
 	return updated;
 }
@@ -112,18 +132,21 @@ export async function closeVoting(current: Contest): Promise<Contest> {
  *
  * Irreversible by the machine's own rule — there is no edge back from Published, so
  * there is no `unpublish`, and refusing a second publication rather than silently
- * re-stamping the first is what makes that obvious to whoever tries.
+ * re-stamping the first is what makes that obvious to whoever tries. A second
+ * publication refuses because the phase it was leaving is no longer there.
  */
 export async function publishResults(current: Contest): Promise<Contest> {
 	// Publication is only ever out of Results. Not out of Voting, because the result
 	// would still be moving; not out of Registration, because there is no result. The
 	// machine has no edge back from Published, so there is no `unpublish` either.
 	if (current.phase !== 'results') throw new NothingToPublish();
-	const [updated] = await getDb()
-		.update(contest)
-		.set({ phase: 'published', publishedAt: new Date() })
-		.where(eq(contest.id, current.id))
-		.returning();
+
+	// Through the machine, like every other edge: the phase name is `nextPhase`'s to
+	// spell, not this module's.
+	const updated = await advance(current, nextPhase(current.phase) as ContestPhase, {
+		publishedAt: new Date()
+	});
+	if (updated === undefined) throw new NothingToPublish();
 
 	return updated;
 }

@@ -20,10 +20,8 @@
 // looking at one screen.
 
 import { query } from '$app/server';
+import { POLL_MS } from '#lib/poll.js';
 import { readBoard, type Board } from '#lib/server/board.js';
-
-/** How often the Board re-reads while it is on screen. */
-const POLL_MS = 2000;
 
 // `unchecked` because the only argument is a Contest identifier this page already
 // holds. It is not trusted: `readBoard` reads through the same queries as the ballot

@@ -287,6 +287,30 @@ test.describe('the operator', () => {
 		await operator.close();
 	});
 
+	test('cannot be published twice at once', async ({ browser }) => {
+		const { operator, operatorPage, contestId } = await finishedContest(browser);
+
+		// Two publications in the same instant. What this pins is the outcome the room
+		// depends on — one publication, one refusal — whichever way the two requests
+		// interleave; a local D1 tends to run them one after the other, so the write's own
+		// `where` (which refuses the loser when they do interleave) is not what this test
+		// alone proves.
+		const answered = await Promise.all([
+			postForm(operatorPage, `/admin/contests/${contestId}?/publish`, { confirm: 'publish' }),
+			postForm(operatorPage, `/admin/contests/${contestId}?/publish`, { confirm: 'publish' })
+		]);
+
+		expect(answered.map((one) => one.type).sort()).toEqual(['failure', 'success']);
+
+		// And it is public exactly once, from the room's side.
+		const page = await (await browser.newContext()).newPage();
+		await openAudience(page, contestId);
+		await expect(page.getByRole('heading', { name: 'The result' })).toBeVisible();
+
+		await page.close();
+		await operator.close();
+	});
+
 	test('cannot publish before voting is closed', async ({ browser }) => {
 		const operator = await browser.newContext();
 		const operatorPage = await operator.newPage();

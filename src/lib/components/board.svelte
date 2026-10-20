@@ -1,5 +1,6 @@
 <script lang="ts">
 	import * as Card from '#lib/components/ui/card/index.js';
+	import StandingRow from '#lib/components/standing-row.svelte';
 	import { getBoard, getFrozenBoard } from '#lib/board.remote.js';
 
 	/**
@@ -36,19 +37,13 @@
 				<li data-standing={standing.entryId} data-place={standing.place}>
 					<Card.Root size="sm">
 						<Card.Content class="flex flex-row items-center gap-4">
-							<span data-place-label class="w-10 shrink-0 text-lg font-semibold tabular-nums">
-								{standing.place}
-							</span>
-							<img
-								src="/admin/contests/{contestId}/entries/{standing.entryId}/photo"
-								alt="Photo of {standing.names.join(', ')}"
-								class="size-12 shrink-0 rounded-md border object-cover"
+							<StandingRow
+								place={standing.place}
+								costume={standing.costume}
+								names={standing.names}
+								photoSrc="/admin/contests/{contestId}/entries/{standing.entryId}/photo"
+								votes={standing.votes}
 							/>
-							<div class="flex flex-1 flex-col gap-0.5">
-								<span class="font-medium">{standing.costume}</span>
-								<span class="text-sm text-muted-foreground">{standing.names.join(', ')}</span>
-							</div>
-							<span data-votes class="text-lg font-semibold tabular-nums">{standing.votes}</span>
 						</Card.Content>
 					</Card.Root>
 				</li>

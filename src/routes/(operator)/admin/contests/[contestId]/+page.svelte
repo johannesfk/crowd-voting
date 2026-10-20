@@ -386,6 +386,18 @@
 								<span class="text-sm text-muted-foreground">
 									Registered {entry.registeredAt.toLocaleString()}
 								</span>
+								<!--
+									Which device registered this Entry (story 85). A short prefix is
+									enough to tell two browsers apart and to answer "was this the same
+									phone?", so the whole unguessable identifier is not needed here.
+								-->
+								<span
+									data-entry-device={entry.deviceId}
+									title="The device that registered this Entry"
+									class="text-xs text-muted-foreground"
+								>
+									Device {entry.deviceId.slice(0, 8)}
+								</span>
 
 								{#if modifiable}
 									<div class="pt-1">

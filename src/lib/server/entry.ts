@@ -11,8 +11,9 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { isCorrectionWorthMaking, planNameCorrection } from '#lib/contest/correction.js';
 import { acceptsEntries } from '#lib/contest/phases.js';
+import { isUniqueViolation } from './db/constraint.js';
 import { getDb } from './db/index.js';
-import { entry, participant } from './db/schema.js';
+import { contest, entry, participant } from './db/schema.js';
 import { photoKeyFor, storePhoto } from './photos.js';
 import type { Contest } from './contest.js';
 
@@ -121,6 +122,30 @@ export async function findEntryByDevice(
 export class RegistrationClosed extends Error {}
 
 /**
+ * This device has already entered this Contest. Registration is final, so a second
+ * submission is not a second Entry — it is the same guest, twice.
+ */
+export class AlreadyEntered extends Error {}
+
+/**
+ * Whether the Contest still takes Entries, read now rather than trusted from the
+ * caller's Contest, which was fetched when the request began.
+ *
+ * Every entry write is a write to the entry list, and the list freezes the moment
+ * voting opens: a registration, a hide or a correction already on its way when the
+ * operator opened voting must not land under a ballot that has been cast.
+ */
+async function stillAcceptingEntries(contestId: string): Promise<boolean> {
+	const live = await getDb()
+		.select({ phase: contest.phase })
+		.from(contest)
+		.where(eq(contest.id, contestId))
+		.get();
+
+	return live !== undefined && acceptsEntries(live.phase);
+}
+
+/**
  * Records an Entry: the Contest, what it is dressed up as, every Participant, and
  * a photo in object storage.
  *
@@ -135,21 +160,39 @@ export async function registerEntry(input: {
 	photo: File;
 }): Promise<Entry> {
 	const { contest } = input;
-	if (!acceptsEntries(contest.phase)) throw new RegistrationClosed();
+	if (!(await stillAcceptingEntries(contest.id))) throw new RegistrationClosed();
 
 	const entryId = crypto.randomUUID();
 	const db = getDb();
 
-	const [created] = await db
-		.insert(entry)
-		.values({
-			id: entryId,
-			contestId: contest.id,
-			costume: input.costume,
-			photoKey: photoKeyFor(contest.id, entryId),
-			deviceId: input.deviceId
-		})
-		.returning();
+	let created: Entry | undefined;
+	try {
+		[created] = await db
+			.insert(entry)
+			.values({
+				id: entryId,
+				contestId: contest.id,
+				costume: input.costume,
+				photoKey: photoKeyFor(contest.id, entryId),
+				deviceId: input.deviceId
+			})
+			.returning();
+	} catch (cause) {
+		// The unique index on (Contest, device) is what actually enforces one Entry per
+		// device: two posts in the same instant both pass the route's check above and
+		// the second loses the race here. A guest who double-submitted has entered, so
+		// the loser is named rather than reported as a failure — and no photo is
+		// stored, because there is no Entry of theirs to store it against.
+		if (
+			isUniqueViolation(cause) ||
+			(await findEntryByDevice(contest.id, input.deviceId)) !== undefined
+		) {
+			throw new AlreadyEntered();
+		}
+		throw cause;
+	}
+
+	if (created === undefined) throw new AlreadyEntered();
 
 	try {
 		await db
@@ -181,7 +224,7 @@ export async function setEntryHidden(
 	entryId: string,
 	hidden: boolean
 ): Promise<Entry | undefined> {
-	if (!acceptsEntries(contest.phase)) throw new EntryListFrozen();
+	if (!(await stillAcceptingEntries(contest.id))) throw new EntryListFrozen();
 
 	const [updated] = await getDb()
 		.update(entry)
@@ -214,7 +257,7 @@ export async function correctEntry(
 	entryId: string,
 	input: { costume: string; names: string[] }
 ): Promise<void> {
-	if (!acceptsEntries(contest.phase)) throw new EntryListFrozen();
+	if (!(await stillAcceptingEntries(contest.id))) throw new EntryListFrozen();
 
 	// Asked here as well as in the route, because this is the function that would
 	// otherwise delete every Participant and leave an Entry with no costume. The route
