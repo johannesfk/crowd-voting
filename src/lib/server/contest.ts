@@ -2,7 +2,7 @@
 // and remote functions call these and stay thin; the rules a Contest obeys — the
 // phases in `#lib/contest/phases.js` — live in the domain modules.
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { acceptsEntries, acceptsVotes, nextPhase, type ContestPhase } from '#lib/contest/phases.js';
 import { getDb } from './db/index.js';
 import { contest } from './db/schema.js';
@@ -21,12 +21,14 @@ export type NewContest = {
 
 /** Every Contest, newest first, so last year's party is as findable as tonight's. */
 export async function listContests(): Promise<Contest[]> {
-	return getDb().select().from(contest).orderBy(desc(contest.createdAt));
+	return getDb().query.contest.findMany({
+		orderBy: (table, { desc }) => [desc(table.createdAt)]
+	});
 }
 
 /** One Contest by its unguessable identifier, or `undefined` if there is none. */
 export async function getContest(id: string): Promise<Contest | undefined> {
-	return getDb().select().from(contest).where(eq(contest.id, id)).get();
+	return getDb().query.contest.findFirst({ where: { id } });
 }
 
 /**

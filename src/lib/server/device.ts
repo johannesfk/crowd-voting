@@ -7,7 +7,6 @@
 // credentials, and a cookie replayed against another Contest is a different token
 // as far as that Contest is concerned: the lookup is by (Contest, digest).
 
-import { and, eq } from 'drizzle-orm';
 import type { Cookies } from '@sveltejs/kit';
 import { getDb } from './db/index.js';
 import { device } from './db/schema.js';
@@ -69,11 +68,9 @@ export async function resolveDevice(
 ): Promise<Device> {
 	const existing = cookies.get(DEVICE_COOKIE);
 	if (existing !== undefined) {
-		const found = await getDb()
-			.select()
-			.from(device)
-			.where(and(eq(device.contestId, contestId), eq(device.tokenHash, await sha256Hex(existing))))
-			.get();
+		const found = await getDb().query.device.findFirst({
+			where: { contestId, tokenHash: await sha256Hex(existing) }
+		});
 		if (found !== undefined) return found;
 	}
 

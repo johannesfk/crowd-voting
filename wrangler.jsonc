@@ -12,7 +12,12 @@
 		{
 			"binding": "DB",
 			"database_name": "crowd-voting",
-			"database_id": "local"
+			"database_id": "local",
+			// drizzle 1 writes one folder per migration, with the SQL inside it.
+			// Wrangler only finds that layout when told to, and it records each
+			// migration in `d1_migrations` under its path relative to `migrations_dir`.
+			"migrations_dir": "migrations",
+			"migrations_pattern": "migrations/*/migration.sql"
 		}
 	],
 	"r2_buckets": [

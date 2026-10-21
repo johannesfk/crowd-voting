@@ -8,12 +8,12 @@
 // Entry can vanish from a ballot that has already been cast, and no costume can
 // change underneath one either.
 
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { isCorrectionWorthMaking, planNameCorrection } from '#lib/contest/correction.js';
 import { acceptsEntries } from '#lib/contest/phases.js';
 import { isUniqueViolation } from './db/constraint.js';
 import { getDb } from './db/index.js';
-import { contest, entry, participant } from './db/schema.js';
+import { entry, participant } from './db/schema.js';
 import { photoKeyFor, storePhoto } from './photos.js';
 import type { Contest } from './contest.js';
 
@@ -22,35 +22,24 @@ export type Entry = typeof entry.$inferSelect;
 /** An Entry with the names of its Participants, in the order they were typed. */
 export type EntryWithNames = Entry & { names: string[] };
 
-/** Every Entry of a Contest, newest last. */
+/**
+ * Every Entry of a Contest, newest last, with the people in each of them.
+ *
+ * One statement. The Participants come back inside the Entry rows rather than in
+ * a second read stitched on in JavaScript, so the names of an Entry are the names
+ * it had at the moment the Entry itself was read.
+ */
 export async function listEntries(contestId: string): Promise<EntryWithNames[]> {
-	const rows = await getDb()
-		.select()
-		.from(entry)
-		.where(eq(entry.contestId, contestId))
-		.orderBy(asc(entry.registeredAt));
+	const rows = await getDb().query.entry.findMany({
+		where: { contestId },
+		orderBy: (table, { asc }) => [asc(table.registeredAt)],
+		with: { participants: { orderBy: (table, { asc }) => [asc(table.position)] } }
+	});
 
-	if (rows.length === 0) return [];
-
-	const people = await getDb()
-		.select()
-		.from(participant)
-		.where(
-			inArray(
-				participant.entryId,
-				rows.map((row) => row.id)
-			)
-		)
-		.orderBy(asc(participant.position));
-
-	const namesByEntry = new Map<string, string[]>();
-	for (const person of people) {
-		const names = namesByEntry.get(person.entryId) ?? [];
-		names.push(person.name);
-		namesByEntry.set(person.entryId, names);
-	}
-
-	return rows.map((row) => ({ ...row, names: namesByEntry.get(row.id) ?? [] }));
+	return rows.map(({ participants: people, ...row }) => ({
+		...row,
+		names: people.map((person) => person.name)
+	}));
 }
 
 /**
@@ -79,11 +68,7 @@ export async function findVisibleEntryByDevice(
 }
 
 export async function findEntry(contestId: string, entryId: string): Promise<Entry | undefined> {
-	return getDb()
-		.select()
-		.from(entry)
-		.where(and(eq(entry.contestId, contestId), eq(entry.id, entryId)))
-		.get();
+	return getDb().query.entry.findFirst({ where: { contestId, id: entryId } });
 }
 
 /**
@@ -103,20 +88,14 @@ export async function findEntryByDevice(
 	contestId: string,
 	deviceId: string
 ): Promise<EntryWithNames | undefined> {
-	const found = await getDb()
-		.select()
-		.from(entry)
-		.where(and(eq(entry.contestId, contestId), eq(entry.deviceId, deviceId)))
-		.get();
+	const found = await getDb().query.entry.findFirst({
+		where: { contestId, deviceId },
+		with: { participants: { orderBy: (table, { asc }) => [asc(table.position)] } }
+	});
 	if (found === undefined) return undefined;
 
-	const people = await getDb()
-		.select()
-		.from(participant)
-		.where(eq(participant.entryId, found.id))
-		.orderBy(asc(participant.position));
-
-	return { ...found, names: people.map((person) => person.name) };
+	const { participants: people, ...row } = found;
+	return { ...row, names: people.map((person) => person.name) };
 }
 
 export class RegistrationClosed extends Error {}
@@ -136,11 +115,10 @@ export class AlreadyEntered extends Error {}
  * operator opened voting must not land under a ballot that has been cast.
  */
 async function stillAcceptingEntries(contestId: string): Promise<boolean> {
-	const live = await getDb()
-		.select({ phase: contest.phase })
-		.from(contest)
-		.where(eq(contest.id, contestId))
-		.get();
+	const live = await getDb().query.contest.findFirst({
+		where: { id: contestId },
+		columns: { phase: true }
+	});
 
 	return live !== undefined && acceptsEntries(live.phase);
 }
@@ -270,11 +248,10 @@ export async function correctEntry(
 	if (found === undefined) throw new NoSuchEntry();
 
 	const db = getDb();
-	const people = await db
-		.select()
-		.from(participant)
-		.where(eq(participant.entryId, found.id))
-		.orderBy(asc(participant.position));
+	const people = await db.query.participant.findMany({
+		where: { entryId: found.id },
+		orderBy: (table, { asc }) => [asc(table.position)]
+	});
 
 	const plan = planNameCorrection(
 		people.map((person) => person.name),

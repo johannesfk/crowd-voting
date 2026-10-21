@@ -7,13 +7,12 @@
 // the ballot and the device did not register itself. Casting is final, so nothing
 // in this module amends, replaces or withdraws anything.
 
-import { and, eq } from 'drizzle-orm';
 import { MIN_VOTES, parsePicks, pickCountAllowed, tallyVotes } from '#lib/contest/ballot.js';
 import { acceptsVotes } from '#lib/contest/phases.js';
 import type { DuplicateDevice } from '#lib/contest/standings.js';
 import { isUniqueViolation } from './db/constraint.js';
 import { getDb } from './db/index.js';
-import { ballot, device, vote } from './db/schema.js';
+import { ballot, vote } from './db/schema.js';
 import { listVisibleEntries } from './entry.js';
 import { getContest, type Contest } from './contest.js';
 
@@ -45,11 +44,7 @@ export async function findBallotByDevice(
 	contestId: string,
 	deviceId: string
 ): Promise<Ballot | undefined> {
-	return getDb()
-		.select()
-		.from(ballot)
-		.where(and(eq(ballot.contestId, contestId), eq(ballot.deviceId, deviceId)))
-		.get();
+	return getDb().query.ballot.findFirst({ where: { contestId, deviceId } });
 }
 
 /**
@@ -64,24 +59,16 @@ export async function countVotes(
 ): Promise<{ ballots: number; votes: Map<string, number> }> {
 	// One statement, not two. Reading the Ballots and then their Votes separately let a
 	// Ballot arriving between the two make the Board report a total it had no counts
-	// for — one more Ballot than there were Votes anywhere. Joined here, every row is
-	// the same moment.
-	const rows = await getDb()
-		.select({ ballotId: ballot.id, entryId: vote.entryId })
-		.from(ballot)
-		.leftJoin(vote, eq(vote.ballotId, ballot.id))
-		.where(eq(ballot.contestId, contestId));
+	// for — one more Ballot than there were Votes anywhere. The Votes are nested in
+	// the Ballot rows here, so every row is the same moment.
+	const rows = await getDb().query.ballot.findMany({
+		where: { contestId },
+		with: { votes: true }
+	});
 
-	const ballots = new Set<string>();
-	const picks: { entryId: string }[] = [];
-	for (const row of rows) {
-		ballots.add(row.ballotId);
-		// A Ballot always holds at least one Vote, so the null side only shows up if a
-		// write died halfway — counted as a Ballot with no picks rather than as a pick.
-		if (row.entryId !== null) picks.push({ entryId: row.entryId });
-	}
+	const picks = rows.flatMap((row) => row.votes.map((vote) => ({ entryId: vote.entryId })));
 
-	return { ballots: ballots.size, votes: tallyVotes(picks) };
+	return { ballots: rows.length, votes: tallyVotes(picks) };
 }
 
 /**
@@ -94,35 +81,16 @@ export async function countVotes(
  * most of the room (ADR 0004).
  */
 export async function listVotingDevices(contestId: string): Promise<DuplicateDevice[]> {
-	const rows = await getDb()
-		.select({
-			deviceId: device.id,
-			networkHash: device.networkHash,
-			fingerprintHash: device.fingerprintHash,
-			ballotId: ballot.id
-		})
-		.from(ballot)
-		.innerJoin(device, eq(device.id, ballot.deviceId))
-		.where(eq(ballot.contestId, contestId));
-
-	if (rows.length === 0) return [];
-
-	const picked = await getDb()
-		.select({ ballotId: vote.ballotId, entryId: vote.entryId })
-		.from(vote)
-		.innerJoin(ballot, eq(ballot.id, vote.ballotId))
-		.where(eq(ballot.contestId, contestId));
-
-	const picksByBallot = new Map<string, string[]>();
-	for (const row of picked) {
-		picksByBallot.set(row.ballotId, [...(picksByBallot.get(row.ballotId) ?? []), row.entryId]);
-	}
+	const rows = await getDb().query.ballot.findMany({
+		where: { contestId },
+		with: { device: true, votes: true }
+	});
 
 	return rows.map((row) => ({
-		id: row.deviceId,
-		networkHash: row.networkHash,
-		fingerprintHash: row.fingerprintHash,
-		picks: picksByBallot.get(row.ballotId) ?? []
+		id: row.device.id,
+		networkHash: row.device.networkHash,
+		fingerprintHash: row.device.fingerprintHash,
+		picks: row.votes.map((vote) => vote.entryId)
 	}));
 }
 

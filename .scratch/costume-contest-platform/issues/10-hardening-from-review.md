@@ -60,7 +60,9 @@ one module, and the rewrite would not have changed a single behaviour).
   `device-identity.e2e.ts` registers in two Contests from one browser and then checks all
   four consequences: two cookies by path, the own Entry still pinned, the ballot order
   byte-identical across a trip to the other Contest, and the cast Ballot still cast.
-- `src/lib/server/db/schema.ts` + `migrations/0005_omniscient_vermin.sql` — a unique index
+- `src/lib/server/db/schema.ts` + `migrations/20261017015721_omniscient_vermin/migration.sql`
+  (renamed from `migrations/0005_omniscient_vermin.sql` by the drizzle 1 migration layout) — a
+  unique index
   on `entry(contest_id, device_id)`, applied as a forward migration (the tables have
   shipped, so no 0000 rebuild this time). `db/constraint.ts` holds the one
   `isUniqueViolation` predicate that both `registerEntry` and `castBallot` now share;

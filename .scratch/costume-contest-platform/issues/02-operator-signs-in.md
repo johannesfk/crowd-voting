@@ -71,6 +71,49 @@ never talks to Cloudflare. README records the workflow.
 `migrations_dir` was tried in `wrangler.jsonc` and removed: wrangler rejects it as an
 unexpected top-level field and finds `migrations/` by default anyway.
 
+Drizzle 1 (rc.4) changed the layout: `drizzle-kit up` rewrote `migrations/` into one
+folder per migration — `migrations/<stamp>_<name>/migration.sql` with its snapshot
+beside it — and dropped `meta/_journal.json`. So `migrations_dir` and
+`migrations_pattern` are back, this time on the D1 binding in `wrangler.jsonc`
+rather than at the top level, which is where wrangler reads them from. Wrangler
+records a migration in `d1_migrations` under its path relative to `migrations_dir`,
+so the recorded names changed from `0000_unique_captain_flint.sql` to
+`20261010230801_unique_captain_flint/migration.sql`. A database that already has the
+old names applied needs its `d1_migrations` rows renamed to match, or wrangler tries
+to apply every migration again. Only local `.wrangler` state exists so far, so that
+rename was a one-off on the local ledger; the same would be needed the day a remote
+D1 is created.
+
+### Relations
+
+Drizzle 1 removed the old `relations()` helper and the `schema` map that went with
+it, so the upgrade had to write the relations again in the new shape: one
+`defineRelations` call for the whole schema, in `src/lib/server/db/relations.ts`,
+handed to the client as `drizzle(env.DB, { relations })`. The reads were rewritten
+onto the relational query builder at the same time, so the relations are used rather
+than merely declared: `listEntries` and `findEntryByDevice` ask for the Participants
+inside the Entry rows, `countVotes` asks for the Votes inside the Ballot rows, and
+`listVotingDevices` asks for the Device and the Votes inside the Ballot rows. Each
+of those was two reads stitched together in JavaScript before, and one statement now.
+
+Two things worth knowing about the SQLite implementation, because both are invisible
+until they bite:
+
+- A relational query is one statement that nests the related rows with SQLite's JSON
+  functions, so a read that wants a whole shape is still a single read. The Board's
+  count depends on that: two reads would let a Ballot arrive between them and make
+  it report a total it has no counts for.
+- Drizzle prefers SQLite's `jsonb_*` functions where the SQLite is new enough, and
+  D1 does not have them. D1's driver is the one that asks drizzle for plain `json`,
+  and `src/lib/server/db/relations.spec.ts` is what keeps that honest — without it
+  the failure mode is a query that works against the local database and errors in
+  production.
+
+The foreign keys on the "many" side of a relation are indexed, as drizzle's own
+guidance asks: `entry(device_id)`, `ballot(device_id)` and `vote(entry_id)` sit
+beside the composite unique indexes, because a composite index only answers a query
+that names its leading column too.
+
 `created_at` is stored in **milliseconds** (`timestamp_ms`), not seconds. Seconds tied
 two Contests created in the same sitting, which made "newest first" no order at all —
 the e2e suite now pins the order. `0000` was regenerated from scratch rather than

@@ -1,4 +1,11 @@
-import { integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+	index,
+	integer,
+	primaryKey,
+	sqliteTable,
+	text,
+	uniqueIndex
+} from 'drizzle-orm/sqlite-core';
 import { INITIAL_PHASE, type ContestPhase } from '#lib/contest/phases.js';
 import { DEFAULT_PODIUM_BACKGROUND } from '#lib/contest/podium.js';
 
@@ -109,7 +116,14 @@ export const entry = sqliteTable(
 	// enforced by the database for the same reason: registration is final, so a second
 	// Entry from one device is a bug rather than a replacement. Two posts in the same
 	// instant both pass the route's check and the second loses here.
-	(table) => [uniqueIndex('entry_contest_device').on(table.contestId, table.deviceId)]
+	//
+	// The device index is separate on purpose: the composite above only helps a
+	// query that names the Contest as well, and the `device → entries` relation
+	// joins on the device alone.
+	(table) => [
+		uniqueIndex('entry_contest_device').on(table.contestId, table.deviceId),
+		index('entry_device').on(table.deviceId)
+	]
 );
 
 /** One named person in an Entry, in the order they were typed. */
@@ -154,7 +168,13 @@ export const ballot = sqliteTable(
 			.notNull()
 			.$defaultFn(() => new Date())
 	},
-	(table) => [uniqueIndex('ballot_contest_device').on(table.contestId, table.deviceId)]
+	// The device index is separate on purpose: the composite above only helps a
+	// query that names the Contest as well, and the `device → ballots` relation
+	// joins on the device alone.
+	(table) => [
+		uniqueIndex('ballot_contest_device').on(table.contestId, table.deviceId),
+		index('ballot_device').on(table.deviceId)
+	]
 );
 
 /**
@@ -172,5 +192,11 @@ export const vote = sqliteTable(
 			.notNull()
 			.references(() => entry.id, { onDelete: 'cascade' })
 	},
-	(table) => [primaryKey({ columns: [table.ballotId, table.entryId] })]
+	// The primary key answers for the ballot, which is how a Ballot is read with
+	// its Votes. The `entry → votes` relation asks the other way round, and the
+	// key's second column cannot answer that.
+	(table) => [
+		primaryKey({ columns: [table.ballotId, table.entryId] }),
+		index('vote_entry').on(table.entryId)
+	]
 );
